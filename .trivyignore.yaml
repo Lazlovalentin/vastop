@@ -1,0 +1,25 @@
+# Documented, accepted Trivy findings (reviewed 2026-06-13).
+# Each entry is a deliberate risk acceptance, not a silenced bug. Re-evaluate
+# when the justification no longer holds.
+#
+# Scan commands (see CLAUDE.md "Security scanning"):
+#   trivy fs --scanners vuln,secret,misconfig --ignorefile .trivyignore.yaml .
+#   trivy image --ignore-unfixed --ignorefile .trivyignore.yaml vastai-operator:<tag>
+#
+# Base-image (python:3.14-slim / Debian 13) OS-package CVEs (perl, ncurses, …)
+# are all "affected"/"fix_deferred" — no upstream fix yet — and are handled by
+# `--ignore-unfixed` rather than pinning a brittle CVE list here. They are not
+# introduced by our code or Python deps (the Python layer scans clean) and the
+# affected binaries are not invoked by the operator. They clear on the next
+# base-image rebuild that ships fixes.
+
+misconfigurations:
+  - id: KSV-0041
+    paths:
+      - "deploy/rbac.yaml"
+    statement: >-
+      The operator reads individual API-key and Slack-webhook Secrets by name
+      (resolver.resolve_api_key, alert._read_webhook). Under --all-namespaces
+      those Secrets live in any namespace, so cluster-scoped read is required.
+      Already narrowed to least privilege: verbs are `get` only (no list/watch),
+      so it cannot enumerate Secrets cluster-wide.
