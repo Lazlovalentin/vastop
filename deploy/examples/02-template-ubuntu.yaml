@@ -1,0 +1,12 @@
+apiVersion: vast.ai/v1alpha1
+kind: VastTemplate
+metadata:
+  name: ubuntu-ssh
+  namespace: default
+spec:
+  image: ubuntu:22.04
+  runtype: ssh
+  diskGB: 16
+  description: Plain Ubuntu 22.04 with SSH access (managed by k8s operator).
+  apiKeySecretRef:
+    name: vastai-credentials

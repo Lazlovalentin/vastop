@@ -1,0 +1,16 @@
+apiVersion: vast.ai/v1alpha1
+kind: VastTemplate
+metadata:
+  name: training-job
+  namespace: default
+spec:
+  image: nvidia/cuda:12.3.1-runtime-ubuntu22.04
+  runtype: args
+  diskGB: 32
+  description: One-shot CUDA training job. Container exits when script finishes.
+  onstart: |
+    nvidia-smi
+    sleep 60
+    echo "training done"
+  apiKeySecretRef:
+    name: vastai-credentials

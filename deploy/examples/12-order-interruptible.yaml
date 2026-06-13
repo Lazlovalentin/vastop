@@ -1,0 +1,29 @@
+# Interruptible (bid) rental with fallback: if no RTX_3090/4090 bid offers
+# match, the operator reruns the same search on the on-demand market.
+apiVersion: vast.ai/v1alpha1
+kind: VastOrder
+metadata:
+  name: spot-3090
+  namespace: default
+spec:
+  gpu:
+    names: [RTX_3090, RTX_4090]
+    count: 1
+    minVramGB: 24
+  machine:
+    minDiskGB: 48
+    minDownloadMbps: 100
+    minUploadMbps: 50
+    minCpuCores: 4
+    minRamGB: 16
+  price:
+    maxPerHour: 0.20
+  rental:
+    type: interruptible
+    bidPricePerHour: 0.15   # what we bid; instance pauses if outbid
+    fallbackToOnDemand: true
+  verifiedOnly: false
+  refreshIntervalSeconds: 240
+  maxResults: 30
+  apiKeySecretRef:
+    name: vastai-credentials

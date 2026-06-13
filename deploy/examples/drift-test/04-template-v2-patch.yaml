@@ -1,0 +1,17 @@
+# Apply this as a strategic merge patch — DO NOT `kubectl apply` it directly.
+#
+#   kubectl patch vasttemplate ubuntu-drift -n default --type merge \
+#     --patch-file deploy/examples/drift-test/04-template-v2-patch.yaml
+#
+# After patching, the operator:
+#   1. Calls Vast.ai create_template with the new spec (new hash).
+#   2. Marks Template status.phase=Ready, syncedGeneration=2.
+#   3. Deletes the old Vast.ai template.
+#   4. The Instance sync_status timer (default 60s) detects
+#      resolvedTemplate != Template.resolved_marker → destroys the old
+#      Vast.ai instance and launches a fresh one with the v2 spec.
+spec:
+  image: ubuntu:24.04
+  description: drift demo v2
+  env:
+    BOOT_TAG: "v24.04"

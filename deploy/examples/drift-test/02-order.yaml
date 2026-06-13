@@ -1,0 +1,15 @@
+apiVersion: vast.ai/v1alpha1
+kind: VastOrder
+metadata:
+  name: drift-order
+  namespace: default
+spec:
+  gpu:
+    count: 1
+  machine:
+    minDiskGB: 16
+  price:
+    maxPerHour: 0.30
+  verifiedOnly: false
+  apiKeySecretRef:
+    name: vastai-credentials

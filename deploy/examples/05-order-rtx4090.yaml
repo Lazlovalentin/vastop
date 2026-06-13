@@ -1,0 +1,22 @@
+# Verified RTX 4090 host with decent network.
+apiVersion: vast.ai/v1alpha1
+kind: VastOrder
+metadata:
+  name: rtx4090-verified
+  namespace: default
+spec:
+  gpu:
+    names: [RTX_4090]
+    count: 1
+  machine:
+    minDiskGB: 64
+    minDownloadMbps: 200
+  price:
+    maxPerHour: 0.60
+  rental:
+    type: on-demand
+  verifiedOnly: true
+  refreshIntervalSeconds: 180
+  maxResults: 20
+  apiKeySecretRef:
+    name: vastai-credentials

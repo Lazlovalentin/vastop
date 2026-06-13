@@ -1,0 +1,20 @@
+apiVersion: vast.ai/v1alpha1
+kind: VastAlert
+metadata:
+  name: pytorch-dev-watch
+  namespace: default
+spec:
+  instanceRef:
+    name: pytorch-dev
+  events:
+    - InstanceTerminated
+    - RentalExpired
+    - InstanceFailed
+  actions:
+    notify: true
+    recreate: true
+  slackWebhookSecretRef:
+    name: slack-webhook
+  cooldownSeconds: 600
+  pollIntervalSeconds: 30
+  customTitle: "*PyTorch Dev GPU*"

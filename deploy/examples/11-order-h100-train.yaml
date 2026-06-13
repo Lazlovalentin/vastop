@@ -1,0 +1,27 @@
+# 8x H100 SXM training node: strict floors on RAM/CPU/network/reliability.
+apiVersion: vast.ai/v1alpha1
+kind: VastOrder
+metadata:
+  name: h100-train
+  namespace: default
+spec:
+  gpu:
+    names: [H100_SXM]
+    count: 8
+    minVramGB: 80
+  machine:
+    minRamGB: 512
+    minCpuCores: 64
+    minDiskGB: 200
+    minDownloadMbps: 1000
+    minUploadMbps: 500
+    minReliability: 0.98
+  price:
+    maxPerHour: 18.0
+  rental:
+    type: on-demand
+  verifiedOnly: true
+  refreshIntervalSeconds: 120
+  maxResults: 5
+  apiKeySecretRef:
+    name: vastai-credentials

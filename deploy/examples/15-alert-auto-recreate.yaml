@@ -1,0 +1,25 @@
+apiVersion: vast.ai/v1alpha1
+kind: VastAlert
+metadata:
+  name: sd-spot-keepalive
+  namespace: default
+spec:
+  instanceRef:
+    name: sd-spot
+  events:
+    - InstanceTerminated
+    - RentalExpired
+    # Outbid bid-instances are PAUSED by Vast.ai (phase Stopped), not destroyed.
+    - InstanceStopped
+  actions:
+    notify: true
+    # Spot/interruptible instances can be preempted at any time.
+    # Auto-recreate keeps the workload alive via the same Template+Order.
+    recreate: true
+  slackWebhookSecretRef:
+    name: slack-webhook
+  cooldownSeconds: 120
+  pollIntervalSeconds: 20
+  customTitle: ":boom: *Spot 3090 preempted*"
+  customSummaryTemplate: |
+    Event `{event}` on instance `{instance}` — operator will relaunch.

@@ -1,0 +1,18 @@
+apiVersion: vast.ai/v1alpha1
+kind: VastTemplate
+metadata:
+  name: pytorch-jupyter
+  namespace: default
+spec:
+  image: pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
+  runtype: jupyter
+  diskGB: 64
+  description: PyTorch with Jupyter Lab.
+  env:
+    JUPYTER_TOKEN: please-rotate-me
+  onstart: |
+    pip install --no-cache-dir jupyterlab
+    jupyter lab --ip=0.0.0.0 --port=8080 --no-browser --allow-root \
+      --ServerApp.token="${JUPYTER_TOKEN}"
+  apiKeySecretRef:
+    name: vastai-credentials

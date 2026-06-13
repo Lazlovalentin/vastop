@@ -1,0 +1,14 @@
+apiVersion: vast.ai/v1alpha1
+kind: VastInstance
+metadata:
+  name: sd-spot
+  namespace: default
+spec:
+  templateRef:
+    name: sd-comfyui
+  orderRef:
+    name: spot-3090
+  recreateOnRefChange: true
+  recreateOnTemplateUpdate: true
+  apiKeySecretRef:
+    name: vastai-credentials

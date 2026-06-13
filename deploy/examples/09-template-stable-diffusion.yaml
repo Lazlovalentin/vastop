@@ -1,0 +1,17 @@
+apiVersion: vast.ai/v1alpha1
+kind: VastTemplate
+metadata:
+  name: sd-comfyui
+  namespace: default
+spec:
+  image: ashleykza/comfyui:latest
+  runtype: jupyter
+  diskGB: 100
+  description: ComfyUI for Stable Diffusion workflows.
+  env:
+    COMFYUI_PORT: "8188"
+  onstart: |
+    cd /workspace/ComfyUI
+    python main.py --listen 0.0.0.0 --port ${COMFYUI_PORT}
+  apiKeySecretRef:
+    name: vastai-credentials

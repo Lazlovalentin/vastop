@@ -1,0 +1,14 @@
+apiVersion: vast.ai/v1alpha1
+kind: VastTemplate
+metadata:
+  name: ubuntu-drift
+  namespace: default
+spec:
+  image: ubuntu:22.04
+  runtype: ssh
+  diskGB: 16
+  description: drift demo v1
+  env:
+    BOOT_TAG: "v22.04"
+  apiKeySecretRef:
+    name: vastai-credentials

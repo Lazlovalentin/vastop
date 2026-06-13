@@ -1,0 +1,21 @@
+apiVersion: vast.ai/v1alpha1
+kind: VastAlert
+metadata:
+  name: llm-watchdog
+  namespace: default
+spec:
+  instanceRef:
+    name: frozen-llm
+  events:
+    - InstanceFailed
+    - InstanceStopped
+    - RentalExpired
+  actions:
+    notify: true
+    # Production: never auto-recreate; on-call decides.
+    recreate: false
+  slackWebhookSecretRef:
+    name: slack-webhook
+  cooldownSeconds: 1800   # 30 min — one ping per incident window
+  pollIntervalSeconds: 60
+  customTitle: ":warning: *PROD LLM ALERT*"

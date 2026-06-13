@@ -1,0 +1,230 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: vastinstances.vast.ai
+spec:
+  group: vast.ai
+  scope: Namespaced
+  names:
+    kind: VastInstance
+    plural: vastinstances
+    singular: vastinstance
+    shortNames:
+      - vi
+      - vinst
+    categories:
+      - vast
+      - gpu
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [templateRef, orderRef]
+              properties:
+                templateRef:
+                  type: object
+                  required: [name]
+                  description: Reference to a VastTemplate in the same namespace.
+                  properties:
+                    name:
+                      type: string
+                orderRef:
+                  type: object
+                  required: [name]
+                  description: Reference to a VastOrder in the same namespace. The cheapest offer from its status is selected.
+                  properties:
+                    name:
+                      type: string
+                envOverrides:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: Optional per-instance overrides merged on top of template.spec.env.
+                healthCheck:
+                  type: object
+                  required: [port]
+                  description: |
+                    HTTP probe of the worker process inside the instance. The
+                    operator GETs scheme://publicIp:externalPort{path} every
+                    sync cycle while the instance is Running; the external port
+                    is resolved from the Vast.ai port mapping for the given
+                    container port. Results land in status.workerHealthy and
+                    feed VastAlert WorkerUnhealthy/WorkerHealthy events.
+                  properties:
+                    port:
+                      type: integer
+                      description: Container port the worker serves health on (template must expose it via ports).
+                    path:
+                      type: string
+                      default: /healthz
+                    scheme:
+                      type: string
+                      enum: [http, https]
+                      default: http
+                    timeoutSeconds:
+                      type: integer
+                      minimum: 1
+                      default: 5
+                    intervalSeconds:
+                      type: integer
+                      minimum: 5
+                      default: 24
+                      description: |
+                        Seconds between probes. Default 24 = 5 probes per
+                        2 minutes. The operator-wide floor is
+                        VAST_HEALTH_PROBE_INTERVAL (default 24s); this value
+                        can only slow probing down, never speed it past the
+                        floor.
+                    initialDelaySeconds:
+                      type: integer
+                      minimum: 0
+                      default: 0
+                      description: Grace period after launch before probing starts.
+                    failureThreshold:
+                      type: integer
+                      minimum: 1
+                      default: 3
+                      description: Consecutive failures before workerHealthy flips to false.
+                recreateOnRefChange:
+                  type: boolean
+                  default: true
+                  description: Destroy + recreate when the referenced Template/Order changes meaningfully.
+                recreateOnTemplateUpdate:
+                  type: boolean
+                  default: true
+                  description: |
+                    Destroy + recreate when the referenced VastTemplate's spec changes
+                    (its metadata.generation bumps). Detected by sync_status timer comparing
+                    status.resolvedTemplate against the live Template marker.
+                rollover:
+                  type: object
+                  description: |
+                    Graceful pre-expiry replacement. When the rental's
+                    remaining lifetime drops below beforeExpirySeconds, the
+                    operator launches a replacement instance alongside the old
+                    one and destroys the old rental ONLY after the replacement
+                    reports healthy (requires spec.healthCheck; without one it
+                    waits for phase Running instead).
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    beforeExpirySeconds:
+                      type: integer
+                      minimum: 60
+                      default: 600
+                      description: Start the rollover this many seconds before rentalEndTime (default 10 min).
+                    requireHealthy:
+                      type: boolean
+                      default: true
+                      description: Wait for the replacement's health probe to pass before destroying the old rental.
+                apiKeySecretRef:
+                  type: object
+                  required: [name]
+                  properties:
+                    name:
+                      type: string
+                    key:
+                      type: string
+                      default: VAST_API_KEY
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+              properties:
+                instanceId:
+                  type: integer
+                phase:
+                  type: string
+                  enum: [Pending, Resolving, Searching, Creating, Running, Stopped, Failed, Terminating]
+                message:
+                  type: string
+                publicIp:
+                  type: string
+                sshPort:
+                  type: integer
+                actualCostPerHour:
+                  type: number
+                offerId:
+                  type: integer
+                resolvedTemplate:
+                  type: string
+                  description: Generation+name of the template used at create time.
+                resolvedOrder:
+                  type: string
+                lastSyncTime:
+                  type: string
+                  format: date-time
+                lastLaunchTime:
+                  type: string
+                  format: date-time
+                workerHealthy:
+                  type: boolean
+                  nullable: true
+                  description: null = not probed yet; true/false = last settled probe verdict.
+                workerHealthMessage:
+                  type: string
+                healthFailureCount:
+                  type: integer
+                healthExternalPort:
+                  type: integer
+                  nullable: true
+                  description: External port mapped by Vast.ai for healthCheck.port; written by the sync timer, consumed by the probe timer.
+                lastHealthProbeTime:
+                  type: string
+                  format: date-time
+                rentalEndTime:
+                  type: string
+                  format: date-time
+                  nullable: true
+                  description: Contract end mirrored from Vast.ai end_date; null for open-ended rentals.
+                rolloverInstanceId:
+                  type: integer
+                  nullable: true
+                  description: Replacement rental launched pre-expiry; promoted to instanceId once healthy.
+                rolloverOfferId:
+                  type: integer
+                  nullable: true
+                rolloverLaunchTime:
+                  type: string
+                  format: date-time
+                  nullable: true
+                rolloverResolvedTemplate:
+                  type: string
+                  nullable: true
+                rolloverResolvedOrder:
+                  type: string
+                  nullable: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Template
+          type: string
+          jsonPath: .spec.templateRef.name
+        - name: Order
+          type: string
+          jsonPath: .spec.orderRef.name
+        - name: InstanceID
+          type: integer
+          jsonPath: .status.instanceId
+        - name: IP
+          type: string
+          jsonPath: .status.publicIp
+        - name: Healthy
+          type: boolean
+          jsonPath: .status.workerHealthy
+        - name: $/hr
+          type: number
+          jsonPath: .status.actualCostPerHour
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

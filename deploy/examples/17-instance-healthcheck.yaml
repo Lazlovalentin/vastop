@@ -1,0 +1,44 @@
+# Instance whose worker exposes an HTTP health endpoint, plus an alert that
+# fires when the worker stops answering (and recreates the rental).
+#
+# The template must EXPOSE the health port (spec.ports) so Vast.ai maps it to
+# an external port; the operator probes publicIp:externalPort every sync cycle
+# while the instance is Running.
+apiVersion: vast.ai/v1alpha1
+kind: VastInstance
+metadata:
+  name: worker-with-health
+  namespace: default
+spec:
+  templateRef:
+    name: pytorch-jupyter
+  orderRef:
+    name: rtx4090-verified
+  healthCheck:
+    port: 8080              # container port the worker listens on
+    path: /healthz
+    intervalSeconds: 24       # 5 probes per 2 minutes (the default)
+    initialDelaySeconds: 120  # worker needs ~2 min to boot before first probe
+    timeoutSeconds: 5
+    failureThreshold: 3       # 3 consecutive failures -> workerHealthy=false (~72s)
+  apiKeySecretRef:
+    name: vastai-credentials
+---
+apiVersion: vast.ai/v1alpha1
+kind: VastAlert
+metadata:
+  name: worker-health-watch
+  namespace: default
+spec:
+  instanceRef:
+    name: worker-with-health
+  events:
+    - InstanceTerminated
+    - WorkerUnhealthy
+    - WorkerHealthy   # recovery notification
+  actions:
+    notify: true
+    recreate: true    # WorkerUnhealthy destroys the stuck rental and relaunches
+  slackWebhookSecretRef:
+    name: slack-webhook
+  cooldownSeconds: 600

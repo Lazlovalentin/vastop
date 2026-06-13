@@ -1,0 +1,14 @@
+apiVersion: vast.ai/v1alpha1
+kind: VastInstance
+metadata:
+  name: pytorch-dev
+  namespace: default
+spec:
+  templateRef:
+    name: pytorch-jupyter
+  orderRef:
+    name: rtx4090-verified
+  recreateOnRefChange: true
+  recreateOnTemplateUpdate: true
+  apiKeySecretRef:
+    name: vastai-credentials

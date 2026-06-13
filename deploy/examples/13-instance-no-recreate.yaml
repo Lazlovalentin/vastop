@@ -1,0 +1,16 @@
+apiVersion: vast.ai/v1alpha1
+kind: VastInstance
+metadata:
+  name: frozen-llm
+  namespace: default
+spec:
+  templateRef:
+    name: vllm-serve
+  orderRef:
+    name: h100-train
+  # Pin the instance: do NOT auto-recreate on Template/ref changes.
+  # Use when reproducibility matters (e.g. an active production serving session).
+  recreateOnRefChange: false
+  recreateOnTemplateUpdate: false
+  apiKeySecretRef:
+    name: vastai-credentials

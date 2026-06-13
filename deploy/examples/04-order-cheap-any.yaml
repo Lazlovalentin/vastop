@@ -1,0 +1,21 @@
+# Cheapest GPU of any kind — good for smoke tests and toy workloads.
+apiVersion: vast.ai/v1alpha1
+kind: VastOrder
+metadata:
+  name: cheap-any-gpu
+  namespace: default
+spec:
+  gpu:
+    count: 1            # any model — no names filter
+  machine:
+    minDiskGB: 16
+    minDownloadMbps: 50
+  price:
+    maxPerHour: 0.30
+  rental:
+    type: on-demand
+  verifiedOnly: false
+  refreshIntervalSeconds: 300
+  maxResults: 10
+  apiKeySecretRef:
+    name: vastai-credentials

@@ -1,0 +1,13 @@
+apiVersion: vast.ai/v1alpha1
+kind: VastInstance
+metadata:
+  name: drift-inst
+  namespace: default
+spec:
+  templateRef:
+    name: ubuntu-drift
+  orderRef:
+    name: drift-order
+  recreateOnTemplateUpdate: true
+  apiKeySecretRef:
+    name: vastai-credentials

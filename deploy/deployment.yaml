@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vastai-operator
+  namespace: vastai-operator-system
+  labels:
+    app.kubernetes.io/name: vastai-operator
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vastai-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vastai-operator
+    spec:
+      serviceAccountName: vastai-operator
+      # Pod-level hardening (trivy KSV-0118): non-root + RuntimeDefault seccomp
+      # apply to every container, not just the one below.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: operator
+          image: vastai-operator:dev
+          imagePullPolicy: IfNotPresent
+          args: []
+          env:
+            - name: VAST_SYNC_INTERVAL
+              value: "60"
+            # Worker health probe cadence: 24s = 5 probes per 2 minutes.
+            - name: VAST_HEALTH_PROBE_INTERVAL
+              value: "24"
+            - name: VAST_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vastai-credentials
+                  key: VAST_API_KEY
+                  optional: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            # Container-level seccomp (trivy KSV-0104).
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: [ALL]

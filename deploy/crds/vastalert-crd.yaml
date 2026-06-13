@@ -1,0 +1,149 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: vastalerts.vast.ai
+spec:
+  group: vast.ai
+  scope: Namespaced
+  names:
+    kind: VastAlert
+    plural: vastalerts
+    singular: vastalert
+    shortNames:
+      - va
+      - valert
+    categories:
+      - vast
+      - gpu
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [instanceRef, slackWebhookSecretRef]
+              properties:
+                instanceRef:
+                  type: object
+                  required: [name]
+                  description: VastInstance to watch (same namespace).
+                  properties:
+                    name:
+                      type: string
+                events:
+                  type: array
+                  description: |
+                    Which events trigger this alert. WorkerUnhealthy /
+                    WorkerHealthy require spec.healthCheck on the watched
+                    VastInstance (they react to status.workerHealthy flips).
+                  items:
+                    type: string
+                    enum:
+                      - InstanceTerminated
+                      - RentalExpired
+                      - InstanceFailed
+                      - InstanceStopped
+                      - WorkerUnhealthy
+                      - WorkerHealthy
+                  default: [InstanceTerminated, RentalExpired]
+                actions:
+                  type: object
+                  properties:
+                    notify:
+                      type: boolean
+                      default: true
+                    recreate:
+                      type: boolean
+                      default: false
+                      description: |
+                        Relaunch the instance from the same Template+Order on
+                        any subscribed event except WorkerHealthy. Destroys
+                        the old rental first if it still exists (paused
+                        bid instance, unhealthy worker).
+                slackWebhookSecretRef:
+                  type: object
+                  required: [name]
+                  description: Secret containing the Slack incoming-webhook URL.
+                  properties:
+                    name:
+                      type: string
+                    key:
+                      type: string
+                      default: SLACK_WEBHOOK_URL
+                customTitle:
+                  type: string
+                  description: |
+                    Optional override of the bold title at the top of the Slack message.
+                    Default: "*VastAI Operator*" next to the Vast.ai logo image.
+                customSummaryTemplate:
+                  type: string
+                  description: |
+                    Optional override for the summary line. Supports tokens
+                    {event}, {instance}, {namespace}, {instanceId}, {publicIp}, {phase}.
+                    Default: icon + bold event + instance pointer.
+                cooldownSeconds:
+                  type: integer
+                  minimum: 0
+                  default: 300
+                  description: Minimum delay between two firings of the same event.
+                pollIntervalSeconds:
+                  type: integer
+                  minimum: 10
+                  default: 30
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Watching, Triggered, Failed]
+                lastEvent:
+                  type: string
+                lastEventTime:
+                  type: string
+                  format: date-time
+                lastNotifyTime:
+                  type: string
+                  format: date-time
+                lastRecreateTime:
+                  type: string
+                  format: date-time
+                notifyCount:
+                  type: integer
+                recreateCount:
+                  type: integer
+                lastObservedInstanceId:
+                  type: integer
+                lastObservedPhase:
+                  type: string
+                lastObservedWorkerHealthy:
+                  type: boolean
+                  nullable: true
+                message:
+                  type: string
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Instance
+          type: string
+          jsonPath: .spec.instanceRef.name
+        - name: LastEvent
+          type: string
+          jsonPath: .status.lastEvent
+        - name: Notifications
+          type: integer
+          jsonPath: .status.notifyCount
+        - name: Recreates
+          type: integer
+          jsonPath: .status.recreateCount
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

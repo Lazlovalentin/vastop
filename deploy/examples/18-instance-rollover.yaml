@@ -1,0 +1,30 @@
+# Graceful pre-expiry rollover: replace the rental ~10 min before its
+# contract ends with zero downtime. The operator launches a NEW instance
+# alongside the expiring one and only destroys the old one AFTER the new
+# worker passes its health probe.
+#
+# Requires spec.healthCheck (rollover keys on workerHealthy). On a fixed-term
+# rental (interruptible, reserved, or any host with an end_date) the sync
+# timer mirrors the contract end into status.rentalEndTime and starts the
+# rollover once the remaining lifetime drops below beforeExpirySeconds.
+apiVersion: vast.ai/v1alpha1
+kind: VastInstance
+metadata:
+  name: long-running-job
+  namespace: default
+spec:
+  templateRef:
+    name: pytorch-jupyter
+  orderRef:
+    name: rtx4090-verified
+  healthCheck:
+    port: 8080
+    path: /healthz
+    initialDelaySeconds: 120
+    failureThreshold: 3
+  rollover:
+    enabled: true
+    beforeExpirySeconds: 600   # start replacing 10 min before the rental ends
+    requireHealthy: true       # destroy the old rental only after the new one is healthy
+  apiKeySecretRef:
+    name: vastai-credentials
