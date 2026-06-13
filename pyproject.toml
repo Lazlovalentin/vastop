@@ -1,0 +1,66 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vastai-operator"
+version = "0.1.0"
+description = "Kubernetes operator for Vast.ai GPU instances built with Kopf"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Valenryn Andreishyn", email = "valentinandreishyn0@gmail.com" }]
+dependencies = [
+    "kopf>=1.44,<2.0",
+    "kubernetes>=36.0",
+    "vastai>=1.0",
+    "pydantic>=2.13",
+    "httpx>=0.28",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0",
+    "pytest-asyncio>=1.4",
+    "pytest-mock>=3.15",
+    "ruff>=0.15",
+    "mypy>=2.1",
+    "respx>=0.23",
+]
+# Fallback for clusters still on the deprecated `vastai-sdk` package; the
+# wrapper imports `vastai` first and degrades to `vastai_sdk` only if absent
+# (see vast_client.py). Declared here so the optional import is not flagged
+# as undeclared.
+legacy = [
+    "vastai-sdk",
+]
+
+[project.scripts]
+vastai-operator = "vastai_operator.__main__:main"
+
+[tool.uv]
+# vastai 1.0.13 hard-pins cryptography==46.0.5, which carries CVE-2026-39892
+# (buffer overflow, fixed in 46.0.7). Override the upstream pin — the bump is a
+# patch release (ABI-stable) and the operator never calls cryptography on an
+# attacker-reachable path. Drop this once vastai relaxes its pin.
+override-dependencies = ["cryptography>=46.0.7,<47"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vastai_operator"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
