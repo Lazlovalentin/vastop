@@ -3,7 +3,7 @@ ARG PYTHON_VERSION=3.14
 FROM python:${PYTHON_VERSION}-slim AS builder
 WORKDIR /build
 RUN pip install --no-cache-dir build
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
 COPY src ./src
 RUN python -m build --wheel --outdir /dist
 
