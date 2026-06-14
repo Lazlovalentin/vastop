@@ -7,7 +7,7 @@ Deploys the Vast.ai Kubernetes operator (CRDs + RBAC + Deployment).
 From the published OCI chart (GitHub Container Registry):
 
 ```bash
-helm install vastai-operator oci://ghcr.io/lazlovalentin/charts/vastai-operator \
+helm install vastai-operator oci://ghcr.io/lazlovalentin/vastai-operator \
   --version 0.1.0 \
   --namespace vastai-operator-system --create-namespace
 ```
