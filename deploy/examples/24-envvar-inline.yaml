@@ -1,0 +1,13 @@
+# Account-level Vast.ai environment variable with an inline value. The operator
+# registers it at Vast.ai (/secrets/); it is injected into EVERY instance
+# launched on the account. Use inline values only for non-sensitive config.
+apiVersion: vast.ai/v1alpha1
+kind: VastEnvVar
+metadata:
+  name: wandb-project
+  namespace: default
+spec:
+  key: WANDB_PROJECT          # Vast.ai-side name (defaults to metadata.name if omitted)
+  value: gpu-experiments
+  apiKeySecretRef:
+    name: vastai-credentials

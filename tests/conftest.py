@@ -55,6 +55,23 @@ class StubVastAI:
         self.last_delete_template_kwargs = kwargs
         return {"success": True}
 
+    def create_env_var(self, **kwargs: Any) -> Any:
+        self.last_create_env_var_kwargs = kwargs
+        return {"success": True}
+
+    def update_env_var(self, **kwargs: Any) -> Any:
+        self.last_update_env_var_kwargs = kwargs
+        return {"success": True}
+
+    def delete_env_var(self, **kwargs: Any) -> Any:
+        self.last_delete_env_var_kwargs = kwargs
+        return {"success": True}
+
+    def show_env_vars(self, **kwargs: Any) -> Any:
+        # Mirrors the SDK method, which already unwraps {"secrets": {...}}.
+        self.last_show_env_vars_kwargs = kwargs
+        return getattr(self, "env_vars_response", {})
+
 
 _stub_module = types.ModuleType("vastai")
 _stub_module.VastAI = StubVastAI  # type: ignore[attr-defined]

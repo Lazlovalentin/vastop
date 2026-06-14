@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vastai-operator.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vastai-operator.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  # kopf peering is not configured — never run more than one active reconciler.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "vastai-operator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vastai-operator.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "vastai-operator.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: operator
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: VAST_SYNC_INTERVAL
+              value: {{ .Values.config.syncIntervalSeconds | quote }}
+            - name: VAST_HEALTH_PROBE_INTERVAL
+              value: {{ .Values.config.healthProbeIntervalSeconds | quote }}
+            {{- if .Values.config.searchTimeoutSeconds }}
+            - name: VAST_SEARCH_TIMEOUT
+              value: {{ .Values.config.searchTimeoutSeconds | quote }}
+            {{- end }}
+            {{- if .Values.config.orderRefreshSeconds }}
+            - name: VAST_ORDER_REFRESH
+              value: {{ .Values.config.orderRefreshSeconds | quote }}
+            {{- end }}
+            {{- $secretName := "" }}
+            {{- if and .Values.vastApiKey.create .Values.vastApiKey.value }}
+            {{- $secretName = printf "%s-credentials" (include "vastai-operator.fullname" .) }}
+            {{- else if .Values.vastApiKey.existingSecret }}
+            {{- $secretName = .Values.vastApiKey.existingSecret }}
+            {{- end }}
+            {{- if $secretName }}
+            - name: VAST_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: {{ .Values.vastApiKey.key }}
+                  optional: {{ .Values.vastApiKey.optional }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

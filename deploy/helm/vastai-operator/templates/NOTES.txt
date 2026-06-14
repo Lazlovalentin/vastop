@@ -1,0 +1,20 @@
+vastai-operator {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+1. Check the operator pod:
+   kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "vastai-operator.fullname" . }}
+
+{{- if not (and .Values.vastApiKey.create .Values.vastApiKey.value) }}
+{{- if not .Values.vastApiKey.existingSecret }}
+
+2. No global Vast.ai API key was wired. Either set one per-CR via
+   spec.apiKeySecretRef, or supply an operator-wide fallback:
+     --set vastApiKey.create=true --set vastApiKey.value=YOUR_KEY
+   (or point vastApiKey.existingSecret at a Secret holding {{ .Values.vastApiKey.key }}).
+{{- end }}
+{{- end }}
+
+3. Apply some custom resources (see deploy/examples/ in the repo):
+   kubectl get vasttemplates,vastorders,vastinstances,vastalerts -A
+
+CRDs are installed from the chart's crds/ directory. Helm does NOT upgrade CRDs
+on `helm upgrade` — re-apply deploy/crds/ manually when the schema changes.

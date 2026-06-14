@@ -1,0 +1,20 @@
+# Per-instance env overrides merged on top of the Template's env. Run the SAME
+# shared VastTemplate with a different model/token without editing the template.
+# envOverrides win over template.spec.env (launcher._merge_env).
+apiVersion: vast.ai/v1alpha1
+kind: VastInstance
+metadata:
+  name: vllm-mistral
+  namespace: default
+spec:
+  templateRef:
+    name: vllm-serve          # template default model is Llama-3.1-8B (see 08)
+  orderRef:
+    name: us-a100-reliable    # see 21
+  envOverrides:
+    MODEL_NAME: mistralai/Mistral-7B-Instruct-v0.3
+    HUGGING_FACE_HUB_TOKEN: REPLACE_WITH_HF_TOKEN
+  recreateOnRefChange: true
+  recreateOnTemplateUpdate: true
+  apiKeySecretRef:
+    name: vastai-credentials

@@ -1,0 +1,100 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: vastenvvars.vast.ai
+spec:
+  group: vast.ai
+  scope: Namespaced
+  names:
+    kind: VastEnvVar
+    plural: vastenvvars
+    singular: vastenvvar
+    shortNames:
+      - vev
+      - venv
+    categories:
+      - vast
+      - gpu
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              description: |
+                One account-level Vast.ai environment variable ("secret").
+                The operator registers it at Vast.ai (/secrets/); it is injected
+                into every instance launched on the account. Provide the value
+                inline (value) or from a Kubernetes Secret (valueFrom).
+              # Exactly one of value / valueFrom must be set.
+              oneOf:
+                - required: [value]
+                - required: [valueFrom]
+              properties:
+                key:
+                  type: string
+                  description: |
+                    Vast.ai-side variable name. Defaults to metadata.name when
+                    omitted. Must be unique across the Vast.ai account — two
+                    VastEnvVars with the same key will fight.
+                value:
+                  type: string
+                  description: Inline value. Prefer valueFrom for anything sensitive.
+                valueFrom:
+                  type: object
+                  required: [secretKeyRef]
+                  properties:
+                    secretKeyRef:
+                      type: object
+                      required: [name, key]
+                      description: Read the value from a Secret in the same namespace.
+                      properties:
+                        name:
+                          type: string
+                        key:
+                          type: string
+                apiKeySecretRef:
+                  type: object
+                  required: [name]
+                  description: Vast.ai API key for the /secrets/ calls.
+                  properties:
+                    name:
+                      type: string
+                    key:
+                      type: string
+                      default: VAST_API_KEY
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Ready, Failed]
+                message:
+                  type: string
+                vastKey:
+                  type: string
+                  description: Variable name registered on Vast.ai (identity; tracks renames).
+                valueHash:
+                  type: string
+                  description: sha256 of the last-synced value (drift detection; never the value).
+                lastSyncTime:
+                  type: string
+                  format: date-time
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Key
+          type: string
+          jsonPath: .status.vastKey
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

@@ -13,9 +13,9 @@ import kopf
 from kubernetes import config as k8s_config
 
 from ..config import CONFIG
-from . import alert, instance, order, template
+from . import alert, envvar, instance, order, template
 
-__all__ = ["alert", "instance", "order", "template"]
+__all__ = ["alert", "envvar", "instance", "order", "template"]
 
 
 @kopf.on.startup()

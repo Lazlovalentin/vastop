@@ -1,0 +1,23 @@
+apiVersion: v2
+name: vastai-operator
+description: |
+  Kubernetes operator that reconciles Vast.ai GPU rentals declaratively via four
+  custom resources (VastOrder / VastTemplate / VastInstance / VastAlert).
+type: application
+# Chart version — bump on every chart change.
+version: 0.1.0
+# Operator image version this chart defaults to.
+appVersion: "0.1.0"
+kubeVersion: ">=1.25.0-0"
+keywords:
+  - vast.ai
+  - gpu
+  - operator
+  - kopf
+home: https://github.com/Lazlovalentin/vastop
+sources:
+  - https://github.com/Lazlovalentin/vastop
+maintainers:
+  - name: Lazlovalentin
+annotations:
+  category: Infrastructure

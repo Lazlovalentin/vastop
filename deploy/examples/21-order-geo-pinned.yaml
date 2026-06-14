@@ -1,0 +1,33 @@
+# Geo-pinned order: only US/Canada hosts, skip suspiciously cheap offers, and
+# demand a fast CPU on a reliable host. Exercises location.countries,
+# price.minPerHour, machine.minCpuGhz and machine.minReliability.
+apiVersion: vast.ai/v1alpha1
+kind: VastOrder
+metadata:
+  name: us-a100-reliable
+  namespace: default
+spec:
+  gpu:
+    names: [A100_SXM4, A100_PCIE]
+    count: 1
+    minVramGB: 40
+  machine:
+    minCpuCores: 16
+    minRamGB: 64
+    minDiskGB: 100
+    minDownloadMbps: 300
+    minUploadMbps: 100
+    minCpuGhz: 3.0
+    minReliability: 0.99
+  location:
+    countries: [US, CA]
+  price:
+    minPerHour: 0.20        # skip "too good to be true" offers
+    maxPerHour: 1.50
+  rental:
+    type: on-demand
+  verifiedOnly: true
+  refreshIntervalSeconds: 180
+  maxResults: 15
+  apiKeySecretRef:
+    name: vastai-credentials

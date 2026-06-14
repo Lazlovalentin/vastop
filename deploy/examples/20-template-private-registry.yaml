@@ -1,0 +1,19 @@
+# Template pulling from a PRIVATE Docker registry. imageLogin is forwarded to
+# Vast.ai as "<registry> <username> <password>" (space-separated); the first
+# token becomes docker_login_repo. Leave imageLogin empty for public images.
+apiVersion: vast.ai/v1alpha1
+kind: VastTemplate
+metadata:
+  name: private-trainer
+  namespace: default
+spec:
+  image: registry.example.com/team/trainer:1.4.2
+  runtype: ssh
+  diskGB: 64
+  private: true             # do NOT list this template in the Vast.ai marketplace
+  description: Job image pulled from a private registry.
+  imageLogin: "registry.example.com myuser REPLACE_WITH_REGISTRY_TOKEN"
+  env:
+    WANDB_API_KEY: ""
+  apiKeySecretRef:
+    name: vastai-credentials

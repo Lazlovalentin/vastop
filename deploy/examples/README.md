@@ -22,6 +22,19 @@ Numbered manifests demonstrating each CRD and common usage patterns.
 | `16-alert-notify-only.yaml` | Production-style alert (notify only, long cooldown). |
 | `17-instance-healthcheck.yaml` | Worker HTTP health probe + WorkerUnhealthy alert with recreate. |
 | `18-instance-rollover.yaml` | Graceful pre-expiry rollover — launch + health-gate replacement before the rental ends. |
+| `19-template-healthcheck-ports.yaml` | Template that EXPOSEs a port (`spec.ports`) so health probing maps an external port. |
+| `20-template-private-registry.yaml` | Private-registry pull via `imageLogin` + `private: true`. |
+| `21-order-geo-pinned.yaml` | US/CA-only order with `location.countries`, `price.minPerHour`, `minCpuGhz`, `minReliability`. |
+| `22-order-legacy-flat.yaml` | Legacy flat-field order (backward-compat; nested form preferred). |
+| `23-instance-env-overrides.yaml` | Per-instance `envOverrides` on top of a shared Template's env. |
+| `24-envvar-inline.yaml` | Account-level Vast.ai env var (`VastEnvVar`) with an inline value. |
+| `25-envvar-from-secret.yaml` | Account-level env var sourced from a Kubernetes Secret. |
+
+> **Health probing needs an exposed port.** `17`/`18` reference a template only
+> for brevity — for probing to actually map an external port, the referenced
+> template must list the health port under `spec.ports` (see
+> `19-template-healthcheck-ports.yaml`). An image's `EXPOSE` alone is not enough
+> unless Vast.ai maps it.
 
 ## Apply order
 

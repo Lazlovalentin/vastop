@@ -139,6 +139,26 @@ def fetch_order_pick(namespace: str, name: str) -> OrderPick:
     )
 
 
+def read_secret_value(namespace: str, name: str, key: str) -> str:
+    """Read and base64-decode a single key from a namespaced Secret.
+
+    Missing Secret → TemporaryError (retry); missing key → PermanentError.
+    Shared by API-key resolution and VastEnvVar value sourcing.
+    """
+    core = k8s_client.CoreV1Api()
+    try:
+        secret = core.read_namespaced_secret(name=name, namespace=namespace)
+    except k8s_client.ApiException as exc:
+        raise kopf.TemporaryError(
+            f"Cannot read secret {namespace}/{name}: {exc}", delay=30
+        ) from exc
+
+    raw = (secret.data or {}).get(key)
+    if not raw:
+        raise kopf.PermanentError(f"Secret {namespace}/{name} missing key {key}")
+    return base64.b64decode(raw).decode("utf-8").strip()
+
+
 def resolve_api_key(spec: dict[str, Any], namespace: str) -> str:
     ref = spec.get("apiKeySecretRef")
     if not ref:
@@ -149,19 +169,4 @@ def resolve_api_key(spec: dict[str, Any], namespace: str) -> str:
             )
         return env_key
 
-    secret_name = ref["name"]
-    secret_key = ref.get("key", "VAST_API_KEY")
-    core = k8s_client.CoreV1Api()
-    try:
-        secret = core.read_namespaced_secret(name=secret_name, namespace=namespace)
-    except k8s_client.ApiException as exc:
-        raise kopf.TemporaryError(
-            f"Cannot read secret {namespace}/{secret_name}: {exc}", delay=30
-        ) from exc
-
-    raw = (secret.data or {}).get(secret_key)
-    if not raw:
-        raise kopf.PermanentError(
-            f"Secret {namespace}/{secret_name} missing key {secret_key}"
-        )
-    return base64.b64decode(raw).decode("utf-8").strip()
+    return read_secret_value(namespace, ref["name"], ref.get("key", "VAST_API_KEY"))

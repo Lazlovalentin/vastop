@@ -23,6 +23,20 @@ Spec changes to image / GPU / disk trigger a destroy + recreate (controlled by
 
 ## Quick start
 
+### Helm (recommended)
+
+```bash
+helm install vastai-operator deploy/helm/vastai-operator \
+    --namespace vastai-operator-system --create-namespace \
+    --set image.repository=registry.example.com/vastai-operator \
+    --set image.tag=0.1.0
+```
+
+See [deploy/helm/vastai-operator/README.md](deploy/helm/vastai-operator/README.md)
+for values (API-key wiring, sync/probe cadence, RBAC toggles).
+
+### Raw manifests
+
 ```bash
 # 1. Install CRD + RBAC + operator
 kubectl apply -f deploy/namespace.yaml

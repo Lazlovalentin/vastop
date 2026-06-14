@@ -1,0 +1,107 @@
+name: release
+
+# Tag-driven release: push a tag like v0.1.0 to build + publish everything.
+#   - multi-arch container image  -> ghcr.io/<owner>/vastop
+#   - Helm chart (OCI)            -> ghcr.io/<owner>/charts/vastai-operator
+#   - GitHub Release with the packaged chart .tgz attached
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (no leading v), e.g. 0.1.0"
+        required: true
+
+permissions:
+  contents: write   # create the GitHub Release
+  packages: write   # push image + chart to GHCR
+
+jobs:
+  # Gate the release on a green test + lint run.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install -e ".[dev]"
+      - run: ruff check src tests
+      - run: pytest -q
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # metadata-action lowercases the image name (owner may contain capitals).
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/vastop
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+
+  chart:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version + lowercase owner
+        id: vars
+        run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - uses: azure/setup-helm@v4
+
+      - name: Package chart
+        run: |
+          helm package deploy/helm/vastai-operator \
+            --version "${{ steps.vars.outputs.version }}" \
+            --app-version "${{ steps.vars.outputs.version }}" \
+            --destination dist
+
+      - name: Push chart to GHCR (OCI)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm push dist/vastai-operator-*.tgz \
+            "oci://ghcr.io/${{ steps.vars.outputs.owner }}/charts"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/vastai-operator-*.tgz

@@ -387,6 +387,42 @@ class VastClient:
                 return
             raise VastAPIError(f"delete_template failed: {exc}") from exc
 
+    # ---- Account-level environment variables (Vast.ai "secrets", /secrets/) ----
+
+    async def create_env_var(self, name: str, value: str) -> dict[str, Any]:
+        """Create an account-level Vast.ai env var (POST /secrets/)."""
+        try:
+            raw = await self._run(self._sdk.create_env_var, name=name, value=value)
+        except Exception as exc:
+            raise VastAPIError(f"create_env_var failed: {exc}") from exc
+        return raw if isinstance(raw, dict) else {}
+
+    async def update_env_var(self, name: str, value: str) -> dict[str, Any]:
+        """Update an existing account-level env var (PUT /secrets/)."""
+        try:
+            raw = await self._run(self._sdk.update_env_var, name=name, value=value)
+        except Exception as exc:
+            raise VastAPIError(f"update_env_var failed: {exc}") from exc
+        return raw if isinstance(raw, dict) else {}
+
+    async def delete_env_var(self, name: str) -> None:
+        """Delete an account-level env var (DELETE /secrets/). Idempotent."""
+        try:
+            await self._run(self._sdk.delete_env_var, name=name)
+        except Exception as exc:
+            if _is_not_found(exc):
+                logger.info("Vast.ai env var %s already gone", name)
+                return
+            raise VastAPIError(f"delete_env_var failed: {exc}") from exc
+
+    async def list_env_vars(self) -> dict[str, Any]:
+        """Return account env vars keyed by name (values masked — existence check)."""
+        try:
+            raw = await self._run(self._sdk.show_env_vars, show_values=False)
+        except Exception as exc:
+            raise VastAPIError(f"show_env_vars failed: {exc}") from exc
+        return raw if isinstance(raw, dict) else {}
+
     async def destroy_instance(self, instance_id: int) -> None:
         try:
             await self._run(self._sdk.destroy_instance, id=instance_id)

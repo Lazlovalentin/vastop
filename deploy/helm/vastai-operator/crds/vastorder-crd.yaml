@@ -1,0 +1,245 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: vastorders.vast.ai
+spec:
+  group: vast.ai
+  scope: Namespaced
+  names:
+    kind: VastOrder
+    plural: vastorders
+    singular: vastorder
+    shortNames:
+      - vo
+      - vorder
+    categories:
+      - vast
+      - gpu
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              description: |
+                Filters used to query Vast.ai for matching GPU offers.
+                Prefer the nested blocks (gpu/machine/location/price/rental);
+                the flat fields are legacy aliases kept for compatibility.
+              properties:
+                gpu:
+                  type: object
+                  description: What GPUs to look for.
+                  properties:
+                    names:
+                      type: array
+                      description: Acceptable GPU models (any of), e.g. [RTX_4090, RTX_5090].
+                      items:
+                        type: string
+                    count:
+                      type: integer
+                      minimum: 1
+                      default: 1
+                    minVramGB:
+                      type: number
+                      description: Minimum per-GPU VRAM in GB.
+                machine:
+                  type: object
+                  description: Minimum host machine parameters.
+                  properties:
+                    minCpuCores:
+                      type: integer
+                    minRamGB:
+                      type: number
+                      description: Minimum system RAM in GB.
+                    minDiskGB:
+                      type: number
+                      minimum: 8
+                    minDownloadMbps:
+                      type: number
+                    minUploadMbps:
+                      type: number
+                    minCpuGhz:
+                      type: number
+                    minReliability:
+                      type: number
+                      description: Host reliability score 0..1, e.g. 0.98.
+                location:
+                  type: object
+                  properties:
+                    countries:
+                      type: array
+                      description: Acceptable ISO country codes (any of), e.g. [US, DE].
+                      items:
+                        type: string
+                price:
+                  type: object
+                  properties:
+                    minPerHour:
+                      type: number
+                      description: Skip suspiciously cheap offers below this USD/hour.
+                    maxPerHour:
+                      type: number
+                      description: Max acceptable USD/hour.
+                rental:
+                  type: object
+                  description: Rental market selection.
+                  properties:
+                    type:
+                      type: string
+                      enum: [on-demand, interruptible]
+                      default: on-demand
+                    bidPricePerHour:
+                      type: number
+                      description: |
+                        Bid for interruptible rentals (USD/hour). Defaults to
+                        price.maxPerHour. The instance pauses whenever someone
+                        outbids you.
+                    fallbackToOnDemand:
+                      type: boolean
+                      default: false
+                      description: |
+                        If no interruptible offers match, retry the same search
+                        on the on-demand market and use that instead.
+                gpuName:
+                  type: string
+                  description: "LEGACY: use gpu.names. GPU model filter, e.g. RTX_4090."
+                numGpus:
+                  type: integer
+                  minimum: 1
+                  default: 1
+                  description: "LEGACY: use gpu.count."
+                minGpuRamGB:
+                  type: number
+                  description: "LEGACY: use gpu.minVramGB."
+                minSystemRamGB:
+                  type: number
+                  description: "LEGACY: use machine.minRamGB."
+                minCpuCores:
+                  type: integer
+                  description: "LEGACY: use machine.minCpuCores."
+                diskGB:
+                  type: integer
+                  minimum: 8
+                  default: 32
+                  description: "LEGACY: use machine.minDiskGB."
+                minDownloadMbps:
+                  type: number
+                  default: 100
+                  description: "LEGACY: use machine.minDownloadMbps."
+                minUploadMbps:
+                  type: number
+                  description: "LEGACY: use machine.minUploadMbps."
+                maxPricePerHour:
+                  type: number
+                  description: "LEGACY: use price.maxPerHour."
+                rentalType:
+                  type: string
+                  enum: [on-demand, interruptible]
+                  default: on-demand
+                  description: "LEGACY: use rental.type."
+                geolocation:
+                  type: string
+                  description: "LEGACY: use location.countries."
+                verifiedOnly:
+                  type: boolean
+                  default: true
+                refreshIntervalSeconds:
+                  type: integer
+                  minimum: 30
+                  default: 300
+                maxResults:
+                  type: integer
+                  minimum: 1
+                  default: 20
+                apiKeySecretRef:
+                  type: object
+                  required: [name]
+                  properties:
+                    name:
+                      type: string
+                    key:
+                      type: string
+                      default: VAST_API_KEY
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Ready, NoMatch, Failed]
+                message:
+                  type: string
+                lastSearchTime:
+                  type: string
+                  format: date-time
+                cheapestOfferId:
+                  type: integer
+                cheapestPricePerHour:
+                  type: number
+                matchCount:
+                  type: integer
+                rentalTypeInUse:
+                  type: string
+                  enum: [on-demand, interruptible]
+                  description: Market the published offers came from (after any fallback).
+                fellBackToOnDemand:
+                  type: boolean
+                effectiveBidPerHour:
+                  type: number
+                  nullable: true
+                  description: Bid that will be placed when launching from this Order (interruptible only).
+                matchingOffers:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      gpuName:
+                        type: string
+                      numGpus:
+                        type: integer
+                      pricePerHour:
+                        type: number
+                      diskSpace:
+                        type: number
+                      inetDown:
+                        type: number
+                      inetUp:
+                        type: number
+                      minBid:
+                        type: number
+                      cpuCores:
+                        type: integer
+                      ramGB:
+                        type: number
+                      vramGB:
+                        type: number
+                      geolocation:
+                        type: string
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: GPU
+          type: string
+          jsonPath: .spec.gpuName
+        - name: Rental
+          type: string
+          jsonPath: .status.rentalTypeInUse
+        - name: Matches
+          type: integer
+          jsonPath: .status.matchCount
+        - name: Cheapest$
+          type: number
+          jsonPath: .status.cheapestPricePerHour
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

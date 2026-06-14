@@ -1,0 +1,24 @@
+# Template that EXPOSES a port so worker health probing actually works.
+# Vast.ai only maps ports listed here ("-p PORT:PORT" docker option), and the
+# operator's prober translates spec.healthCheck.port on the VastInstance to the
+# external port Vast.ai mapped. Reference this template from an Instance with a
+# healthCheck (see 17/18) instead of an image that never EXPOSEs the port.
+apiVersion: vast.ai/v1alpha1
+kind: VastTemplate
+metadata:
+  name: healthcheck-worker
+  namespace: default
+spec:
+  image: valentynandreishyn/vast-healthcheck-test:latest
+  runtype: args
+  diskGB: 16
+  description: Tiny HTTP worker serving /healthz on :8080 (operator health-probe demo).
+  ports:
+    - 8080                  # mapped by Vast.ai -> external port the prober GETs
+  env:
+    HEALTH_PORT: "8080"
+  onstart: |
+    # runtype=args: the command must BLOCK or the container exits immediately.
+    python3 /healthserver.py
+  apiKeySecretRef:
+    name: vastai-credentials

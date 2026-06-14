@@ -1,0 +1,92 @@
+# Default values for vastai-operator.
+# Every block below mirrors the raw manifests in deploy/ but parameterised.
+
+# -- Number of operator replicas. Keep at 1 — kopf peering is not configured,
+# so a second replica would double every reconcile. strategy is forced to
+# Recreate for the same reason.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/lazlovalentin/vastop
+  tag: ""                       # defaults to .Chart.AppVersion when empty
+  pullPolicy: IfNotPresent
+
+# -- Image pull secrets for a private operator image (list of {name: ...}).
+imagePullSecrets: []
+
+# -- Override chart name / fullname.
+nameOverride: ""
+fullnameOverride: ""
+
+# Namespace the operator is deployed into. The chart does NOT hard-code a
+# namespace on its objects — install with `--namespace <ns> --create-namespace`,
+# or set createNamespace below to have the chart render a Namespace object.
+createNamespace: false
+
+# Operator runtime knobs (read by src/vastai_operator/config.py from env).
+config:
+  syncIntervalSeconds: 60       # VAST_SYNC_INTERVAL
+  healthProbeIntervalSeconds: 24  # VAST_HEALTH_PROBE_INTERVAL (24s = 5 probes / 2 min)
+  searchTimeoutSeconds: ""      # VAST_SEARCH_TIMEOUT (empty = operator default)
+  orderRefreshSeconds: ""       # VAST_ORDER_REFRESH (empty = operator default)
+
+# Vast.ai API key. The operator falls back to the VAST_API_KEY env var when a
+# CR has no apiKeySecretRef, so wiring it here is optional but convenient.
+vastApiKey:
+  # create: have the chart render a Secret from the literal `value` below.
+  create: false
+  value: ""
+  # OR reference a pre-existing Secret (used when create=false and name set).
+  existingSecret: ""
+  key: VAST_API_KEY
+  # required: false mounts the key as optional so the pod starts without it.
+  optional: true
+
+serviceAccount:
+  create: true
+  name: ""                      # defaults to the fullname
+  annotations: {}
+
+rbac:
+  # create the ClusterRole + ClusterRoleBinding. Required unless you bind an
+  # equivalent role out-of-band. Cluster scope is needed to read Secrets and
+  # CRs across namespaces (get-only on Secrets — see the ClusterRole).
+  create: true
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Pod-level security context (trivy KSV-0118: non-root + RuntimeDefault seccomp).
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container-level hardening (trivy KSV-0104 / KSV-0014).
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  seccompProfile:
+    type: RuntimeDefault
+  capabilities:
+    drop: [ALL]
+
+podAnnotations: {}
+podLabels: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Extra environment variables appended verbatim to the operator container.
+extraEnv: []

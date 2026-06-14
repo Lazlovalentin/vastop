@@ -1,0 +1,126 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: vasttemplates.vast.ai
+spec:
+  group: vast.ai
+  scope: Namespaced
+  names:
+    kind: VastTemplate
+    plural: vasttemplates
+    singular: vasttemplate
+    shortNames:
+      - vt
+      - vtmpl
+    categories:
+      - vast
+      - gpu
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [image]
+              description: |
+                Vast.ai instance configuration. The controller registers (or updates)
+                a server-side template on Vast.ai and stores its hash in status.
+                VastInstance launches via template_hash, so all fields here are sent
+                once and reused.
+              properties:
+                image:
+                  type: string
+                  description: Docker image to run.
+                runtype:
+                  type: string
+                  enum: [ssh, jupyter, args]
+                  default: ssh
+                diskGB:
+                  type: integer
+                  minimum: 8
+                  default: 32
+                  description: Recommended disk size baked into the Vast.ai template.
+                env:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: |
+                    Environment variables baked into the Vast.ai template.
+                    Translated to "-e KEY=VAL" docker-run options on Vast.ai's side.
+                ports:
+                  type: array
+                  items:
+                    type: integer
+                  description: |
+                    Container ports to expose. Each becomes "-p PORT:PORT" in the
+                    Vast.ai template's docker options string.
+                imageLogin:
+                  type: string
+                  description: |
+                    Docker registry login, formatted as the SDK expects:
+                    "<registry> <username> <password>" (space-separated). The first
+                    token is used as docker_login_repo. Leave empty for public images.
+                onstart:
+                  type: string
+                  description: Shell script run when the instance starts.
+                description:
+                  type: string
+                  description: Human-readable description sent to Vast.ai.
+                private:
+                  type: boolean
+                  default: true
+                  description: Whether the Vast.ai template is private (not listed in marketplace).
+                apiKeySecretRef:
+                  type: object
+                  required: [name]
+                  description: Vast.ai API key for create/update/delete template calls.
+                  properties:
+                    name:
+                      type: string
+                    key:
+                      type: string
+                      default: VAST_API_KEY
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Ready, Failed]
+                message:
+                  type: string
+                vastTemplateHash:
+                  type: string
+                  description: Vast.ai template hash used by VastInstance.
+                vastTemplateId:
+                  type: integer
+                  description: Numeric template ID assigned by Vast.ai.
+                lastSyncTime:
+                  type: string
+                  format: date-time
+                syncedGeneration:
+                  type: integer
+                  description: metadata.generation value at last successful Vast.ai sync.
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Image
+          type: string
+          jsonPath: .spec.image
+        - name: Runtype
+          type: string
+          jsonPath: .spec.runtype
+        - name: Hash
+          type: string
+          jsonPath: .status.vastTemplateHash
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

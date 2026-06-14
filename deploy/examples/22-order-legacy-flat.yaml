@@ -1,0 +1,24 @@
+# LEGACY flat-field order (no nested blocks). Kept working for backward
+# compatibility; new manifests should prefer the nested form (see 04/05/11/21).
+# When both forms are present the nested block wins (resolver _filters_from_spec).
+apiVersion: vast.ai/v1alpha1
+kind: VastOrder
+metadata:
+  name: legacy-rtx3090
+  namespace: default
+spec:
+  gpuName: RTX_3090
+  numGpus: 1
+  minGpuRamGB: 24
+  minSystemRamGB: 32
+  minCpuCores: 8
+  diskGB: 48
+  minDownloadMbps: 200
+  maxPricePerHour: 0.40
+  rentalType: on-demand
+  geolocation: US           # legacy single-country string (nested uses a list)
+  verifiedOnly: true
+  refreshIntervalSeconds: 300
+  maxResults: 20
+  apiKeySecretRef:
+    name: vastai-credentials
