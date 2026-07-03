@@ -46,6 +46,9 @@ rules:
       - vastenvvars
       - vastenvvars/status
       - vastenvvars/finalizers
+      - vastinstancegroups
+      - vastinstancegroups/status
+      - vastinstancegroups/finalizers
     verbs: ["*"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

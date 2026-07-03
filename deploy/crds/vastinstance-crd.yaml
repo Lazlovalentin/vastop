@@ -42,6 +42,12 @@ spec:
                   properties:
                     name:
                       type: string
+                    offerId:
+                      type: integer
+                      description: |
+                        Pin a specific offer from the Order's status.matchingOffers
+                        instead of the cheapest. Set by VastInstanceGroup to spread
+                        replicas across distinct offers; leave unset for cheapest.
                 envOverrides:
                   type: object
                   additionalProperties:

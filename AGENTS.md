@@ -11,7 +11,7 @@ agents when working with code in this repository.
 
 ## What this repo is
 
-A Kubernetes operator written in Python that reconciles five custom resources
+A Kubernetes operator written in Python that reconciles six custom resources
 in the `vast.ai/v1alpha1` API group against the [Vast.ai](https://vast.ai) GPU
 cloud:
 
@@ -81,6 +81,20 @@ cloud:
   Secrets, so the operator cannot watch them). The Vast.ai key is the
   identity and must be unique per account; two VastEnvVars with the same key
   fight.
+- **`VastInstanceGroup`** — *replica set of VastInstances on one Order*. Owns
+  `spec.replicas` child VastInstance objects (via `ownerReferences`, label
+  `vast.ai/group=<name>`) and spreads them across **distinct** offers from the
+  Order's `status.matchingOffers` — cheapest-first, skipping offers a sibling
+  already pinned (**variant B**). The distinct-offer pin uses a new
+  `VastInstance.spec.orderRef.offerId`; absent → cheapest. A child whose pinned
+  offer leaves the pool (taken) *before it launches* is reassigned to the next
+  free offer, which also defuses the single-instance "bad offer trap". All
+  lifecycle (launch/health/rollover/recreate/delete) stays in the VastInstance
+  controller; the group only manages the set + assignment. `spec.instanceTemplate`
+  carries arbitrary child VastInstance spec fields. Phases: `Ready` (all
+  replicas Running), `Scaling`, `Degraded` (fewer distinct offers than
+  replicas). Deleting the group GC-deletes children → their finalizers destroy
+  the rentals (no explicit group on_delete needed).
 
 Built on:
 
@@ -153,7 +167,11 @@ required before changing behavior:
    `fetch_order_pick` use `CustomObjectsApi` to read the referenced
    `VastTemplate` / `VastOrder` and return typed dataclasses with a
    `resolved_marker` (e.g. `"tmpl-a@3"` or `"order-a@5#999"`) that is written
-   to `VastInstance.status` so drift is observable. `resolve_api_key` reads
+   to `VastInstance.status` so drift is observable. `fetch_order_pick(...,
+   offer_id=)` pins a specific offer from `status.matchingOffers` (used by
+   VastInstanceGroup to spread replicas); absent → cheapest, and a pinned
+   offer that has left `matchingOffers` raises `TemporaryError` so the group
+   can reassign. `resolve_api_key` reads
    the Secret named by `apiKeySecretRef`, with the operator's `VAST_API_KEY`
    env var as fallback; both it and `VastEnvVar` value-sourcing go through the
    shared `read_secret_value(ns, name, key)` (404 → TemporaryError, missing
@@ -262,6 +280,20 @@ required before changing behavior:
     the Template controller); `@on.delete` removes it; the `@kopf.timer`
     reconcile recreates on external deletion and re-pushes on value-hash
     drift (heals Secret rotation). No cross-resource refs — it's standalone.
+
+5g. **`handlers/group.py`** — registers against `vastinstancegroups`. Thin
+    replica manager: `@on.create` sets phase Pending; `@kopf.timer` (every
+    `VAST_SYNC_INTERVAL`) runs `reconcile` via `CustomObjectsApi` (sync, like
+    alert/resolver). Algorithm: read Order `matchingOffers` (pool), list child
+    VastInstances by label `vast.ai/group=<name>`, scale down extras, compute
+    `free` = pool minus offers already pinned by surviving children, then
+    create missing children (`{group}-{i}`, `ownerReferences` → group) each on
+    the next cheapest free offer; heal not-yet-launched children whose pinned
+    offer left the pool by reassigning. Children carry `orderRef.offerId`;
+    `resolver.fetch_order_pick(..., offer_id=)` honors it (else cheapest). A
+    *launched* child (has `status.instanceId`) is never reassigned even though
+    its rented offer is no longer in the pool. No group on_delete — k8s GC +
+    child finalizers handle teardown.
 
 5c. **`slack.py`** — minimal incoming-webhook client. `SlackMessage`
     dataclass + `send()` (httpx POST) + `render(template, **tokens)` that

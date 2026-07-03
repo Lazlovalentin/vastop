@@ -83,7 +83,7 @@ async def test_launch_instance_propagates_order_missing(
         ),
     )
 
-    def _no_offers(ns: str, name: str) -> None:
+    def _no_offers(ns: str, name: str, offer_id: int | None = None) -> None:
         raise kopf.TemporaryError("no offers", delay=60)
 
     monkeypatch.setattr(launcher, "fetch_order_pick", _no_offers)

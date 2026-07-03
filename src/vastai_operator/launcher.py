@@ -50,7 +50,11 @@ async def launch_instance(spec: dict[str, Any], namespace: str) -> LaunchResult:
     order_ref = spec["orderRef"]
 
     template = fetch_template(namespace, template_ref["name"])
-    pick = fetch_order_pick(namespace, order_ref["name"])
+    # offerId pins a specific offer (VastInstanceGroup spreads replicas across
+    # distinct offers); absent → cheapest.
+    pick = fetch_order_pick(
+        namespace, order_ref["name"], offer_id=order_ref.get("offerId")
+    )
 
     api_key = resolve_api_key(spec, namespace)
     client = VastClient(api_key=api_key)

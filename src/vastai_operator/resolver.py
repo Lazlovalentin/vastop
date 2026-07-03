@@ -103,8 +103,16 @@ def fetch_template(namespace: str, name: str) -> TemplateSpec:
     )
 
 
-def fetch_order_pick(namespace: str, name: str) -> OrderPick:
-    """Return the cheapest offer the referenced VastOrder currently knows about."""
+def fetch_order_pick(
+    namespace: str, name: str, offer_id: int | None = None
+) -> OrderPick:
+    """Return an offer the referenced VastOrder currently knows about.
+
+    Default: the cheapest offer (``status.cheapestOfferId``). When ``offer_id``
+    is given (VastInstanceGroup pins a specific offer per replica), that exact
+    offer must still be present in ``status.matchingOffers`` — otherwise it was
+    taken/expired and a TemporaryError lets the caller reassign.
+    """
     try:
         obj = _custom().get_namespaced_custom_object(
             group=CONFIG.api_group,
@@ -121,19 +129,38 @@ def fetch_order_pick(namespace: str, name: str) -> OrderPick:
         raise kopf.TemporaryError(f"Error reading VastOrder: {exc}", delay=30) from exc
 
     status = obj.get("status") or {}
-    cheapest_id = status.get("cheapestOfferId")
-    cheapest_price = status.get("cheapestPricePerHour")
-    if not cheapest_id:
-        raise kopf.TemporaryError(
-            f"VastOrder {namespace}/{name} has no matching offers yet", delay=60
+
+    if offer_id is not None:
+        match = next(
+            (
+                o
+                for o in (status.get("matchingOffers") or [])
+                if o.get("id") is not None and int(o["id"]) == int(offer_id)
+            ),
+            None,
         )
+        if match is None:
+            raise kopf.TemporaryError(
+                f"VastOrder {namespace}/{name} offer {offer_id} no longer available",
+                delay=60,
+            )
+        chosen_id = int(offer_id)
+        chosen_price = float(match.get("pricePerHour") or 0.0)
+    else:
+        cheapest_id = status.get("cheapestOfferId")
+        if not cheapest_id:
+            raise kopf.TemporaryError(
+                f"VastOrder {namespace}/{name} has no matching offers yet", delay=60
+            )
+        chosen_id = int(cheapest_id)
+        chosen_price = float(status.get("cheapestPricePerHour") or 0.0)
 
     bid = status.get("effectiveBidPerHour")
     return OrderPick(
         name=name,
         generation=int(obj.get("metadata", {}).get("generation", 0)),
-        offer_id=int(cheapest_id),
-        price_per_hour=float(cheapest_price or 0.0),
+        offer_id=chosen_id,
+        price_per_hour=chosen_price,
         rental_type=status.get("rentalTypeInUse") or "on-demand",
         bid_price_per_hour=float(bid) if bid is not None else None,
     )

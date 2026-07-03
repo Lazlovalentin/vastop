@@ -1,0 +1,33 @@
+# VastInstanceGroup: N replicas of one Template, spread across DISTINCT offers
+# from one Order (cheapest-first, skipping offers a sibling already took). Each
+# replica is a child VastInstance (owned via ownerReferences) with full health/
+# rollover/recreate behavior. Deleting the group garbage-collects the children,
+# which destroy their Vast.ai rentals.
+#
+# Needs the Order to advertise >= replicas distinct offers for full scale;
+# fewer -> phase Degraded until more appear. The referenced Template must EXPOSE
+# the healthCheck port (spec.ports) for probing to work (see 19).
+apiVersion: vast.ai/v1alpha1
+kind: VastInstanceGroup
+metadata:
+  name: vllm-fleet
+  namespace: default
+spec:
+  replicas: 3
+  templateRef:
+    name: vllm-serve            # see 08
+  orderRef:
+    name: us-a100-reliable      # see 21
+  # Applied to every child VastInstance (any VastInstance spec field except the
+  # refs / apiKeySecretRef, which the controller injects).
+  instanceTemplate:
+    healthCheck:
+      port: 8000
+      path: /health
+      initialDelaySeconds: 300
+      failureThreshold: 3
+    rollover:
+      enabled: true
+    recreateOnTemplateUpdate: true
+  apiKeySecretRef:
+    name: vastai-credentials

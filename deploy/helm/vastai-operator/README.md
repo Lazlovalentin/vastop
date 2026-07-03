@@ -8,7 +8,7 @@ From the published OCI chart (GitHub Container Registry):
 
 ```bash
 helm install vastai-operator oci://ghcr.io/lazlovalentin/vastai-operator \
-  --version 0.1.0 \
+  --version 0.2.0 \
   --namespace vastai-operator-system --create-namespace
 ```
 
@@ -37,7 +37,7 @@ helm upgrade vastai-operator deploy/helm/vastai-operator -n vastai-operator-syst
 
 ## CRDs
 
-The four CRDs ship under `crds/`. Helm installs them on first `helm install`
+The six CRDs ship under `crds/`. Helm installs them on first `helm install`
 but **does not upgrade them** on `helm upgrade` (standard Helm behaviour). When
 the CRD schema changes, re-apply manually:
 

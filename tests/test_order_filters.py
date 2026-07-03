@@ -319,7 +319,7 @@ async def test_launcher_forwards_bid_price(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(
         launcher,
         "fetch_order_pick",
-        lambda ns, name: OrderPick(
+        lambda ns, name, offer_id=None: OrderPick(
             name="o", generation=1, offer_id=77, price_per_hour=0.12,
             rental_type="interruptible", bid_price_per_hour=0.2,
         ),
@@ -358,7 +358,7 @@ async def test_launcher_no_bid_for_on_demand(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(
         launcher,
         "fetch_order_pick",
-        lambda ns, name: OrderPick(name="o", generation=1, offer_id=77, price_per_hour=0.12),
+        lambda ns, name, offer_id=None: OrderPick(name="o", generation=1, offer_id=77, price_per_hour=0.12),
     )
     monkeypatch.setattr(launcher, "resolve_api_key", lambda spec, ns: "k")
 

@@ -1,0 +1,124 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: vastinstancegroups.vast.ai
+spec:
+  group: vast.ai
+  scope: Namespaced
+  names:
+    kind: VastInstanceGroup
+    plural: vastinstancegroups
+    singular: vastinstancegroup
+    shortNames:
+      - vig
+      - vgroup
+    categories:
+      - vast
+      - gpu
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [templateRef, orderRef]
+              description: |
+                A replica set of VastInstances driven by one VastOrder. The
+                controller creates `replicas` child VastInstance objects (owned
+                via ownerReferences) and spreads them across DISTINCT offers
+                from the Order's status.matchingOffers — cheapest-first, skipping
+                offers already taken by a sibling. Deleting the group garbage-
+                collects the children, which destroy their Vast.ai rentals.
+              properties:
+                replicas:
+                  type: integer
+                  minimum: 0
+                  default: 1
+                  description: Desired number of VastInstance children.
+                templateRef:
+                  type: object
+                  required: [name]
+                  properties:
+                    name:
+                      type: string
+                orderRef:
+                  type: object
+                  required: [name]
+                  description: VastOrder whose matchingOffers feed the replicas.
+                  properties:
+                    name:
+                      type: string
+                instanceTemplate:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                  description: |
+                    VastInstance spec fields applied to every child (e.g.
+                    healthCheck, rollover, envOverrides, recreateOnRefChange,
+                    recreateOnTemplateUpdate). templateRef/orderRef/apiKeySecretRef
+                    are injected by the controller and must not be set here.
+                apiKeySecretRef:
+                  type: object
+                  required: [name]
+                  properties:
+                    name:
+                      type: string
+                    key:
+                      type: string
+                      default: VAST_API_KEY
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Scaling, Ready, Degraded, Failed]
+                  description: |
+                    Ready = all replicas Running. Scaling = children still
+                    coming up. Degraded = fewer distinct offers than replicas.
+                message:
+                  type: string
+                replicas:
+                  type: integer
+                  description: Desired replica count (mirrors spec.replicas).
+                readyReplicas:
+                  type: integer
+                  description: Children currently in phase Running.
+                instances:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      offerId:
+                        type: integer
+                      phase:
+                        type: string
+                      instanceId:
+                        type: integer
+                lastSyncTime:
+                  type: string
+                  format: date-time
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Desired
+          type: integer
+          jsonPath: .status.replicas
+        - name: Ready
+          type: integer
+          jsonPath: .status.readyReplicas
+        - name: Order
+          type: string
+          jsonPath: .spec.orderRef.name
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
