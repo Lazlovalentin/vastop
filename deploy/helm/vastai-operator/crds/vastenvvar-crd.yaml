@@ -30,11 +30,13 @@ spec:
                 One account-level Vast.ai environment variable ("secret").
                 The operator registers it at Vast.ai (/secrets/); it is injected
                 into every instance launched on the account. Provide the value
-                inline (value) or from a Kubernetes Secret (valueFrom).
-              # Exactly one of value / valueFrom must be set.
+                inline (value), from a Kubernetes Secret (valueFrom), or composed
+                from a template with Secret-backed placeholders (valueTemplate).
+              # Exactly one of value / valueFrom / valueTemplate must be set.
               oneOf:
                 - required: [value]
                 - required: [valueFrom]
+                - required: [valueTemplate]
               properties:
                 key:
                   type: string
@@ -58,6 +60,35 @@ spec:
                           type: string
                         key:
                           type: string
+                valueTemplate:
+                  type: object
+                  required: [template]
+                  description: |
+                    Compose the value from a template string. $(NAME) placeholders
+                    are replaced with Secret values from vars; everything else is
+                    taken literally. For values that mix public and secret parts,
+                    e.g. "redis://:$(PASSWORD)@1.2.3.4:6379/0".
+                  properties:
+                    template:
+                      type: string
+                    vars:
+                      type: array
+                      items:
+                        type: object
+                        required: [name, secretKeyRef]
+                        properties:
+                          name:
+                            type: string
+                            description: Placeholder name referenced as $(NAME).
+                          secretKeyRef:
+                            type: object
+                            required: [name, key]
+                            description: Secret in the same namespace supplying the value.
+                            properties:
+                              name:
+                                type: string
+                              key:
+                                type: string
                 apiKeySecretRef:
                   type: object
                   required: [name]

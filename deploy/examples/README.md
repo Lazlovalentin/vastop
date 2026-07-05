@@ -30,6 +30,7 @@ Numbered manifests demonstrating each CRD and common usage patterns.
 | `24-envvar-inline.yaml` | Account-level Vast.ai env var (`VastEnvVar`) with an inline value. |
 | `25-envvar-from-secret.yaml` | Account-level env var sourced from a Kubernetes Secret. |
 | `26-instance-group.yaml` | `VastInstanceGroup` — N replicas spread across distinct offers from one Order. |
+| `27-envvar-template.yaml` | Account-level env var composed from a template — $(VAR) placeholders filled from Secrets. |
 
 > **Health probing needs an exposed port.** `17`/`18` reference a template only
 > for brevity — for probing to actually map an external port, the referenced

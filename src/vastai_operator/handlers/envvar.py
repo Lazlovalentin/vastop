@@ -12,6 +12,11 @@ Lifecycle:
                re-pushes the value when the (possibly Secret-sourced) value drifts
                from the last-synced hash.
 
+Value sources (exactly one): spec.value (inline), spec.valueFrom.secretKeyRef
+(whole value from a Secret), or spec.valueTemplate — a template string with
+$(VAR) placeholders filled from Secrets, for values that mix public and secret
+parts (e.g. a connection URL with an embedded password).
+
 The Vast.ai-side key is the identity; status.vastKey tracks it so a spec rename
 can delete the old entry. Values are never written to status — only a sha256
 hash (status.valueHash) so drift is observable without leaking the secret.
@@ -45,13 +50,22 @@ def _env_key(spec: dict[str, Any], name: str) -> str:
 
 
 def _resolve_value(spec: dict[str, Any], namespace: str) -> str:
-    """Inline spec.value, else spec.valueFrom.secretKeyRef."""
+    """Inline spec.value, else spec.valueTemplate, else spec.valueFrom.secretKeyRef."""
     if spec.get("value") is not None:
         return str(spec["value"])
+    template = spec.get("valueTemplate")
+    if template:
+        value = str(template["template"])
+        for var in template.get("vars") or []:
+            ref = var["secretKeyRef"]
+            secret = read_secret_value(namespace, ref["name"], ref["key"])
+            value = value.replace(f"$({var['name']})", secret)
+        return value
     ref = (spec.get("valueFrom") or {}).get("secretKeyRef")
     if not ref:
         raise kopf.PermanentError(
-            "VastEnvVar requires spec.value or spec.valueFrom.secretKeyRef"
+            "VastEnvVar requires spec.value, spec.valueFrom.secretKeyRef"
+            " or spec.valueTemplate"
         )
     return read_secret_value(namespace, ref["name"], ref["key"])
 

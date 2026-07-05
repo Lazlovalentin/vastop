@@ -6,9 +6,9 @@ description: |
   VastEnvVar / VastInstanceGroup).
 type: application
 # Chart version — bump on every chart change.
-version: 0.2.0
+version: 0.3.0
 # Operator image version this chart defaults to.
-appVersion: "0.2.0"
+appVersion: "0.3.0"
 kubeVersion: ">=1.25.0-0"
 keywords:
   - vast.ai

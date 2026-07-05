@@ -142,6 +142,82 @@ async def test_on_create_explicit_key_and_secret_value(
     assert patch_obj.status["vastKey"] == "HF_TOKEN"
 
 
+async def test_on_create_value_template_substitutes_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vastai_operator.handlers import envvar
+
+    calls: dict[str, list[Any]] = {"create": [], "update": [], "delete": []}
+    _fake_client(monkeypatch, calls)
+    secrets = {("default", "redis-auth", "redis-password"): "s3cr3t"}
+    monkeypatch.setattr(
+        envvar, "read_secret_value", lambda ns, n, k: secrets[(ns, n, k)]
+    )
+
+    patch_obj = _Patch()
+    await envvar.on_create(
+        spec={
+            "key": "REDIS_URL",
+            "valueTemplate": {
+                "template": "redis://:$(PASSWORD)@1.2.3.4:6379/0",
+                "vars": [
+                    {
+                        "name": "PASSWORD",
+                        "secretKeyRef": {
+                            "name": "redis-auth",
+                            "key": "redis-password",
+                        },
+                    }
+                ],
+            },
+        },
+        patch=patch_obj,
+        namespace="default",
+        name="redis-url",
+        logger=logging.getLogger("test"),
+    )
+    assert calls["create"] == [("REDIS_URL", "redis://:s3cr3t@1.2.3.4:6379/0")]
+    assert patch_obj.status["phase"] == "Ready"
+    assert patch_obj.status["valueHash"] == _hash("redis://:s3cr3t@1.2.3.4:6379/0")
+
+
+def test_resolve_value_template_multiple_vars_and_literals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vastai_operator.handlers import envvar
+
+    secrets = {
+        ("ns", "auth", "user"): "alice",
+        ("ns", "auth", "pass"): "pw",
+    }
+    monkeypatch.setattr(
+        envvar, "read_secret_value", lambda ns, n, k: secrets[(ns, n, k)]
+    )
+    value = envvar._resolve_value(
+        {
+            "valueTemplate": {
+                "template": "amqp://$(USER):$(PASS)@host/$(UNKNOWN)",
+                "vars": [
+                    {"name": "USER", "secretKeyRef": {"name": "auth", "key": "user"}},
+                    {"name": "PASS", "secretKeyRef": {"name": "auth", "key": "pass"}},
+                ],
+            }
+        },
+        "ns",
+    )
+    # Known vars substituted; unreferenced placeholders stay literal.
+    assert value == "amqp://alice:pw@host/$(UNKNOWN)"
+
+
+def test_resolve_value_template_without_vars_is_literal() -> None:
+    from vastai_operator.handlers import envvar
+
+    value = envvar._resolve_value(
+        {"valueTemplate": {"template": "plain-text"}}, "ns"
+    )
+    assert value == "plain-text"
+
+
 async def test_on_update_value_change_calls_update(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -1,0 +1,32 @@
+# Account-level Vast.ai environment variable composed from a template: $(VAR)
+# placeholders are filled from Kubernetes Secrets, everything else is literal.
+# For values that mix public and secret parts — the canonical case is a
+# connection URL with an embedded password, where the host/port are public
+# (a LoadBalancer IP reachable from Vast.ai workers) but the credential must
+# stay out of the CR. Rotation heals like valueFrom: the reconcile timer
+# re-resolves the template each cycle and re-pushes on hash drift.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis-auth
+  namespace: default
+type: Opaque
+stringData:
+  redis-password: REPLACE_WITH_REDIS_PASSWORD
+---
+apiVersion: vast.ai/v1alpha1
+kind: VastEnvVar
+metadata:
+  name: redis-url
+  namespace: default
+spec:
+  key: REDIS_URL
+  valueTemplate:
+    template: "redis://:$(PASSWORD)@203.0.113.10:6379/0"
+    vars:
+      - name: PASSWORD
+        secretKeyRef:
+          name: redis-auth
+          key: redis-password
+  apiKeySecretRef:
+    name: vastai-credentials

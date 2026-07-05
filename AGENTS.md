@@ -273,8 +273,9 @@ required before changing behavior:
     account-level Vast.ai env var via `VastClient.create_env_var` /
     `update_env_var` / `delete_env_var` / `list_env_vars` (the SDK's
     `/secrets/` calls). `_env_key(spec, name)` = `spec.key` else the resource
-    name; `_resolve_value` reads `spec.value` or `spec.valueFrom.secretKeyRef`
-    (via `resolver.read_secret_value`). `@on.create` registers + records
+    name; `_resolve_value` reads `spec.value`, `spec.valueTemplate` ($(VAR)
+    placeholders filled from Secrets — for URLs with embedded passwords),
+    or `spec.valueFrom.secretKeyRef` (via `resolver.read_secret_value`). `@on.create` registers + records
     `vastKey`/`valueHash`; `@on.update(field=spec)` does value-update vs
     key-rename (create-new-then-delete-old, same identity-swap reasoning as
     the Template controller); `@on.delete` removes it; the `@kopf.timer`
