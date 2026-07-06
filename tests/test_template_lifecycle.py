@@ -49,6 +49,75 @@ async def test_create_template_passes_login_ports_env() -> None:
     assert kwargs["public"] is False  # private=True → public=False
 
 
+async def test_create_template_full_login_posts_credentials_directly() -> None:
+    """SDK drops registry user/pass; full 3-part imageLogin must POST /template/
+    itself with docker_login_user / docker_login_pass populated."""
+    from vastai_operator.vast_client import VastClient
+
+    captured: dict[str, Any] = {}
+
+    class _Resp:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict[str, Any]:
+            return {"success": True, "template": {"hash_id": "h1", "id": 7}}
+
+    class _HttpClient:
+        def post(self, path: str, json_data: dict[str, Any]) -> _Resp:
+            captured["path"] = path
+            captured["payload"] = json_data
+            return _Resp()
+
+    client = VastClient(api_key="test")
+    client._sdk.client = _HttpClient()  # type: ignore[attr-defined]
+    raw = await client.create_template(
+        name="worker",
+        image="registry.digitalocean.com/x/worker:v1",
+        runtype="args",
+        disk_gb=100,
+        env={"FOO": "bar"},
+        ports=[8000],
+        onstart="run.sh",
+        description="d",
+        private=True,
+        image_login="registry.digitalocean.com user@x.com dop_v1_token",
+    )
+    assert captured["path"] == "/template/"
+    p = captured["payload"]
+    assert p["docker_login_repo"] == "registry.digitalocean.com"
+    assert p["docker_login_user"] == "user@x.com"
+    assert p["docker_login_pass"] == "dop_v1_token"
+    assert p["runtype"] == "args"
+    assert p["use_ssh"] is False
+    assert p["private"] is True
+    assert p["recommended_disk_space"] == 100.0
+    assert "-e FOO=bar" in p["env"] and "-p 8000:8000" in p["env"]
+    assert raw["template"]["hash_id"] == "h1"
+    # SDK path must not have been used.
+    assert not hasattr(client._sdk, "last_create_template_kwargs")
+
+
+async def test_create_template_repo_only_login_uses_sdk_path() -> None:
+    from vastai_operator.vast_client import VastClient
+
+    client = VastClient(api_key="test")
+    await client.create_template(
+        name="w",
+        image="img",
+        runtype="ssh",
+        disk_gb=16,
+        env=None,
+        ports=None,
+        onstart=None,
+        description=None,
+        private=True,
+        image_login="myregistry.com",
+    )
+    kwargs = client._sdk.last_create_template_kwargs  # type: ignore[attr-defined]
+    assert kwargs["login"] == "myregistry.com"
+
+
 async def test_update_template_emits_flat_flags() -> None:
     from vastai_operator.vast_client import VastClient
 

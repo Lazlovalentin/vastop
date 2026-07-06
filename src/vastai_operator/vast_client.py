@@ -312,10 +312,55 @@ class VastClient:
             kwargs["desc"] = description
         if image_login:
             kwargs["login"] = image_login
-        try:
-            raw = await self._run(self._sdk.create_template, **kwargs)
-        except Exception as exc:
-            raise VastAPIError(f"create_template failed: {exc}") from exc
+
+        # The SDK keeps only the registry host from ``login`` and drops the
+        # credentials (sdk.create_template: login.split(" ")[0] ->
+        # docker_login_repo), so a private-registry template registered through
+        # it can never pull. When full "<registry> <user> <pass>" credentials
+        # are given, POST /template/ directly with docker_login_user/pass —
+        # the fields the Vast.ai web console itself uses.
+        login_parts = image_login.split(" ") if image_login else []
+        sdk_http = getattr(self._sdk, "client", None)
+        if len(login_parts) >= 3 and sdk_http is not None:
+            payload = {
+                "name": name,
+                "image": image,
+                "tag": None,
+                "href": None,
+                "repo": None,
+                "env": env_str,
+                "onstart": onstart,
+                "jup_direct": False,
+                "ssh_direct": False,
+                "use_jupyter_lab": runtype == "jupyter",
+                "runtype": runtype,
+                "use_ssh": runtype in ("ssh", "jupyter"),
+                "jupyter_dir": None,
+                "docker_login_repo": login_parts[0],
+                "docker_login_user": login_parts[1],
+                "docker_login_pass": " ".join(login_parts[2:]),
+                "extra_filters": {},
+                "recommended_disk_space": float(disk_gb),
+                "readme": None,
+                "readme_visible": True,
+                "desc": description,
+                "private": private,
+            }
+
+            def _post() -> Any:
+                r = sdk_http.post("/template/", json_data=payload)
+                r.raise_for_status()
+                return r.json()
+
+            try:
+                raw = await self._run(_post)
+            except Exception as exc:
+                raise VastAPIError(f"create_template failed: {exc}") from exc
+        else:
+            try:
+                raw = await self._run(self._sdk.create_template, **kwargs)
+            except Exception as exc:
+                raise VastAPIError(f"create_template failed: {exc}") from exc
         if not isinstance(raw, dict):
             raise VastAPIError(f"create_template returned unexpected shape: {raw!r}")
         return raw

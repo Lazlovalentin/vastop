@@ -584,6 +584,12 @@ These have been exercised end-to-end against a real Vast.ai account.
 - The wrapped `VastAPIError` message contains the raw URL with the API key
   appended as a query param. Do not log it unredacted — strip
   `?api_key=...` before forwarding messages to Slack or events.
+- **SDK strips template registry credentials.** `sdk.create_template` keeps
+  only `login.split(" ")[0]` as `docker_login_repo`; user/pass never reach the
+  API, so private-registry templates registered through it cannot pull.
+  `VastClient.create_template` therefore POSTs `/template/` directly with
+  `docker_login_user`/`docker_login_pass` when `imageLogin` carries all three
+  parts (the same fields the Vast.ai web console uses).
 - `show_instance` exposes `is_bid` and `min_bid` for interruptible rentals,
   and the `ports` map lists each mapping twice (IPv4 `0.0.0.0` + IPv6 `::`
   bindings with the same HostPort); `InstanceState._parse_ports` takes the
