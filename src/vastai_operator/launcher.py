@@ -61,10 +61,14 @@ async def launch_instance(spec: dict[str, Any], namespace: str) -> LaunchResult:
     try:
         instance_id = await client.create_instance(
             offer_id=pick.offer_id,
-            image=None if template.template_hash_id else template.image,
+            # Always send the image/onstart even when launching by template
+            # hash: the SDK serializes missing values as JSON null, and the
+            # Vast.ai backend takes the payload over the template, so a null
+            # image produces a broken docker reference on the host.
+            image=template.image,
             disk_gb=template.disk_gb,
             env=_merge_env(template, spec),
-            onstart=None if template.template_hash_id else template.onstart,
+            onstart=template.onstart,
             ssh_key=template.ssh_key,
             runtype=template.runtype,
             template_hash_id=template.template_hash_id,
