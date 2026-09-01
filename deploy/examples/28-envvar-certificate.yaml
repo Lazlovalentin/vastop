@@ -1,0 +1,41 @@
+# Delivering PEM material to instances.
+#
+# The Vast.ai /secrets/ API imposes two limits that a certificate breaks:
+# a value may not contain a newline, and it may not exceed 256 characters
+# (257 is rejected with 400). A PEM certificate fails both, and base64 alone
+# only makes the second one worse.
+#
+# encoding: base64 removes the newlines, chunked: true stays under the cap by
+# registering <key>_CHUNKS with the part count plus <key>_0, <key>_1 ... with
+# the parts. Whatever reads the variable on the instance concatenates the parts
+# in order and base64-decodes the result.
+#
+# The Secret here is typically written by cert-manager, so rotation is picked
+# up by the reconcile timer without touching this resource.
+apiVersion: vast.ai/v1alpha1
+kind: VastEnvVar
+metadata:
+  name: redis-client-cert
+  namespace: default
+spec:
+  key: REDIS_CLIENT_CERT
+  encoding: base64
+  chunked: true
+  valueFrom:
+    secretKeyRef:
+      name: vast-worker-client-tls
+      key: tls.crt
+---
+apiVersion: vast.ai/v1alpha1
+kind: VastEnvVar
+metadata:
+  name: redis-client-key
+  namespace: default
+spec:
+  key: REDIS_CLIENT_KEY
+  encoding: base64
+  chunked: true
+  valueFrom:
+    secretKeyRef:
+      name: vast-worker-client-tls
+      key: tls.key

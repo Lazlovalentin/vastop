@@ -95,6 +95,45 @@ def _resolve_value(spec: dict[str, Any], namespace: str) -> str:
     )
 
 
+CHUNK_LIMIT = 256
+
+
+def _chunk_keys(key: str, count: int) -> list[str]:
+    """Every Vast.ai-side name a chunked variable occupies."""
+    return [f"{key}_CHUNKS"] + [f"{key}_{i}" for i in range(count)]
+
+
+def _desired_entries(
+    spec: dict[str, Any], name: str, namespace: str
+) -> tuple[str, dict[str, str], int]:
+    """Map one VastEnvVar onto the account entries it owns.
+
+    Unchunked, that is a single entry under the key itself. Chunked, it is
+    <key>_CHUNKS holding the part count plus <key>_0..<key>_N-1 holding the
+    parts, because the /secrets/ API caps a value at 256 characters and no
+    certificate or key fits in that, base64 included. The chunked layout is
+    used even when one part would do, so whatever reads the variable on the
+    instance never has to detect which shape it got.
+    """
+    key = _env_key(spec, name)
+    value = _resolve_value(spec, namespace)
+    if not spec.get("chunked"):
+        return key, {key: value}, 0
+
+    parts = [
+        value[i : i + CHUNK_LIMIT] for i in range(0, len(value), CHUNK_LIMIT)
+    ] or [""]
+    entries = {f"{key}_CHUNKS": str(len(parts))}
+    for index, part in enumerate(parts):
+        entries[f"{key}_{index}"] = part
+    return key, entries, len(parts)
+
+
+def _owned_keys(key: str, chunk_count: int) -> list[str]:
+    """Account entries a previously-synced resource is holding."""
+    return _chunk_keys(key, chunk_count) if chunk_count else [key]
+
+
 def _value_hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
@@ -112,12 +151,13 @@ async def on_create(
     logger: logging.Logger,
     **_: Any,
 ) -> None:
-    key = _env_key(spec, name)
+    key, entries, chunk_count = _desired_entries(spec, name, namespace)
     value = _resolve_value(spec, namespace)
     client = _client_for(spec, namespace)
     patch.status["phase"] = "Pending"
     try:
-        await client.create_env_var(key, value)
+        for entry_key, entry_value in entries.items():
+            await client.create_env_var(entry_key, entry_value)
     except VastAPIError as exc:
         patch.status["phase"] = "Failed"
         patch.status["message"] = str(exc)
@@ -125,10 +165,15 @@ async def on_create(
 
     patch.status["phase"] = "Ready"
     patch.status["vastKey"] = key
+    patch.status["chunkCount"] = chunk_count
     patch.status["valueHash"] = _value_hash(value)
     patch.status["lastSyncTime"] = _now()
-    patch.status["message"] = f"Created Vast.ai env var {key}"
-    logger.info("Created Vast.ai env var %s", key)
+    patch.status["message"] = (
+        f"Created Vast.ai env var {key}"
+        if not chunk_count
+        else f"Created Vast.ai env var {key} in {chunk_count} chunks"
+    )
+    logger.info(patch.status["message"])
 
 
 @kopf.on.update(GROUP, VERSION, PLURAL, field="spec")
@@ -141,23 +186,42 @@ async def on_update(
     logger: logging.Logger,
     **_: Any,
 ) -> None:
-    new_key = _env_key(spec, name)
+    new_key, entries, chunk_count = _desired_entries(spec, name, namespace)
     old_key = status.get("vastKey") or new_key
+    old_chunks = int(status.get("chunkCount") or 0)
     value = _resolve_value(spec, namespace)
     new_hash = _value_hash(value)
     client = _client_for(spec, namespace)
 
+    # Entries the previous sync left on the account that this one no longer
+    # owns: a rename, a switch in or out of chunking, or a value that now needs
+    # fewer parts. Left behind they would shadow the real value on the instance.
+    stale = [
+        k
+        for k in _owned_keys(old_key, old_chunks)
+        if k not in entries
+    ]
+
     try:
-        if new_key != old_key:
-            # Rename: the Vast.ai key is the identity, so a swap = create new + delete old.
-            await client.create_env_var(new_key, value)
-            await client.delete_env_var(old_key)
-            msg = f"Renamed Vast.ai env var {old_key} -> {new_key}"
+        if new_key != old_key or chunk_count != old_chunks:
+            # The Vast.ai key is the identity, so a change of shape or name is
+            # create-new then drop-old rather than an update in place.
+            for entry_key, entry_value in entries.items():
+                await client.create_env_var(entry_key, entry_value)
+            msg = (
+                f"Renamed Vast.ai env var {old_key} -> {new_key}"
+                if new_key != old_key
+                else f"Reshaped Vast.ai env var {new_key} into {chunk_count} chunks"
+            )
         elif new_hash != status.get("valueHash"):
-            await client.update_env_var(new_key, value)
+            for entry_key, entry_value in entries.items():
+                await client.update_env_var(entry_key, entry_value)
             msg = f"Updated Vast.ai env var {new_key}"
         else:
             msg = f"Vast.ai env var {new_key} already in sync"
+
+        for entry_key in stale:
+            await client.delete_env_var(entry_key)
     except VastAPIError as exc:
         patch.status["phase"] = "Failed"
         patch.status["message"] = str(exc)
@@ -165,6 +229,7 @@ async def on_update(
 
     patch.status["phase"] = "Ready"
     patch.status["vastKey"] = new_key
+    patch.status["chunkCount"] = chunk_count
     patch.status["valueHash"] = new_hash
     patch.status["lastSyncTime"] = _now()
     patch.status["message"] = msg
@@ -194,22 +259,25 @@ async def on_delete(
     client = _client_for(spec, namespace)
     recorded = status.get("vastKey")
     key = recorded or _env_key(spec, name)
+    keys = _owned_keys(key, int(status.get("chunkCount") or 0))
 
     if recorded:
-        await client.delete_env_var(key)
+        for entry_key in keys:
+            await client.delete_env_var(entry_key)
         logger.info("Deleted Vast.ai env var %s", key)
         return
 
-    try:
-        await client.delete_env_var(key)
-    except VastAPIError as exc:
-        logger.warning(
-            "Vast.ai env var %s was never registered, nothing to delete: %s",
-            key,
-            exc,
-        )
-    else:
-        logger.info("Deleted Vast.ai env var %s", key)
+    for entry_key in keys:
+        try:
+            await client.delete_env_var(entry_key)
+        except VastAPIError as exc:
+            logger.warning(
+                "Vast.ai env var %s was never registered, nothing to delete: %s",
+                entry_key,
+                exc,
+            )
+        else:
+            logger.info("Deleted Vast.ai env var %s", entry_key)
 
 
 @kopf.timer(GROUP, VERSION, PLURAL, interval=CONFIG.sync_interval_seconds, idle=30)
@@ -232,7 +300,7 @@ async def reconcile(
     if status.get("phase") not in ("Ready", "Failed"):
         return  # let create/update settle first
 
-    key = status.get("vastKey") or _env_key(spec, name)
+    key, entries, chunk_count = _desired_entries(spec, name, namespace)
     value = _resolve_value(spec, namespace)
     desired_hash = _value_hash(value)
     client = _client_for(spec, namespace)
@@ -243,12 +311,19 @@ async def reconcile(
         logger.warning("env var reconcile list failed: %s", exc)
         return
 
+    # A chunked variable is only intact when every part is still on the
+    # account; one missing part yields a truncated value on the instance,
+    # which is worse than none at all.
+    missing = [k for k in entries if k not in existing]
+
     try:
-        if key not in existing:
-            await client.create_env_var(key, value)
+        if missing:
+            for entry_key in missing:
+                await client.create_env_var(entry_key, entries[entry_key])
             action = f"Recreated drifted Vast.ai env var {key}"
         elif desired_hash != status.get("valueHash"):
-            await client.update_env_var(key, value)
+            for entry_key, entry_value in entries.items():
+                await client.update_env_var(entry_key, entry_value)
             action = f"Re-synced Vast.ai env var {key} value"
         else:
             if status.get("phase") != "Ready":
@@ -261,6 +336,7 @@ async def reconcile(
 
     patch.status["phase"] = "Ready"
     patch.status["vastKey"] = key
+    patch.status["chunkCount"] = chunk_count
     patch.status["valueHash"] = desired_hash
     patch.status["lastSyncTime"] = _now()
     patch.status["message"] = action

@@ -585,3 +585,166 @@ async def test_on_delete_without_vast_key_still_attempts_the_call(
         logger=logging.getLogger("test"),
     )
     assert calls["delete"] == ["ORPHAN"]
+
+
+# ---------- chunking around the 256-character value cap ----------
+
+
+def _joined(entries: dict[str, str], key: str) -> str:
+    count = int(entries[f"{key}_CHUNKS"])
+    return "".join(entries[f"{key}_{i}"] for i in range(count))
+
+
+def test_unchunked_value_is_a_single_entry() -> None:
+    from vastai_operator.handlers import envvar
+
+    key, entries, count = envvar._desired_entries(
+        {"key": "PLAIN", "value": "short"}, "plain", "default"
+    )
+    assert key == "PLAIN"
+    assert entries == {"PLAIN": "short"}
+    assert count == 0
+
+
+def test_chunked_short_value_still_uses_the_chunked_layout() -> None:
+    from vastai_operator.handlers import envvar
+
+    key, entries, count = envvar._desired_entries(
+        {"key": "C", "value": "tiny", "chunked": True}, "c", "default"
+    )
+    assert count == 1
+    assert entries == {"C_CHUNKS": "1", "C_0": "tiny"}
+    assert _joined(entries, key) == "tiny"
+
+
+def test_chunked_value_splits_at_the_limit_and_round_trips() -> None:
+    from vastai_operator.handlers import envvar
+
+    value = "x" * 700
+    key, entries, count = envvar._desired_entries(
+        {"key": "C", "value": value, "chunked": True}, "c", "default"
+    )
+    assert count == 3
+    assert entries["C_CHUNKS"] == "3"
+    assert all(
+        len(v) <= envvar.CHUNK_LIMIT
+        for k, v in entries.items()
+        if k != "C_CHUNKS"
+    )
+    assert _joined(entries, key) == value
+
+
+def test_chunked_base64_pem_round_trips(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import base64
+
+    from vastai_operator.handlers import envvar
+
+    pem = (
+        "-----BEGIN CERTIFICATE-----\n"
+        + "\n".join("MIIB" + "a" * 60 for _ in range(9))
+        + "\n-----END CERTIFICATE-----\n"
+    )
+    monkeypatch.setattr(envvar, "read_secret_value", lambda ns, n, k: pem)
+    key, entries, count = envvar._desired_entries(
+        {
+            "key": "REDIS_CLIENT_CERT",
+            "valueFrom": {"secretKeyRef": {"name": "tls", "key": "tls.crt"}},
+            "encoding": "base64",
+            "chunked": True,
+        },
+        "cert",
+        "default",
+    )
+    assert count > 1
+    assert base64.b64decode(_joined(entries, key)).decode() == pem
+
+
+async def test_on_create_registers_every_chunk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vastai_operator.handlers import envvar
+
+    calls: dict[str, list[Any]] = {"create": [], "update": [], "delete": []}
+    _fake_client(monkeypatch, calls)
+    patch = _Patch()
+
+    await envvar.on_create(
+        spec={"key": "C", "value": "y" * 600, "chunked": True},
+        patch=patch,
+        namespace="default",
+        name="c",
+        logger=logging.getLogger("test"),
+    )
+    created = dict(calls["create"])
+    assert created["C_CHUNKS"] == "3"
+    assert set(created) == {"C_CHUNKS", "C_0", "C_1", "C_2"}
+    assert patch.status["chunkCount"] == 3
+    assert patch.status["vastKey"] == "C"
+
+
+async def test_on_update_removes_chunks_that_are_no_longer_needed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vastai_operator.handlers import envvar
+
+    calls: dict[str, list[Any]] = {"create": [], "update": [], "delete": []}
+    _fake_client(monkeypatch, calls)
+    patch = _Patch()
+
+    await envvar.on_update(
+        spec={"key": "C", "value": "z" * 300, "chunked": True},
+        status={"vastKey": "C", "chunkCount": 4, "valueHash": "stale"},
+        patch=patch,
+        namespace="default",
+        name="c",
+        logger=logging.getLogger("test"),
+    )
+    assert patch.status["chunkCount"] == 2
+    assert sorted(calls["delete"]) == ["C_2", "C_3"]
+
+
+async def test_on_delete_removes_every_chunk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vastai_operator.handlers import envvar
+
+    calls: dict[str, list[Any]] = {"create": [], "update": [], "delete": []}
+    _fake_client(monkeypatch, calls)
+
+    await envvar.on_delete(
+        spec={"key": "C", "value": "x", "chunked": True},
+        status={"vastKey": "C", "chunkCount": 3},
+        namespace="default",
+        name="c",
+        logger=logging.getLogger("test"),
+    )
+    assert sorted(calls["delete"]) == ["C_0", "C_1", "C_2", "C_CHUNKS"]
+
+
+async def test_reconcile_recreates_only_the_missing_chunk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vastai_operator.handlers import envvar
+
+    calls: dict[str, list[Any]] = {"create": [], "update": [], "delete": []}
+    calls["existing_response"] = [{"C_CHUNKS": "", "C_0": "", "C_2": ""}]
+    _fake_client(monkeypatch, calls)
+    patch = _Patch()
+
+    value = "q" * 600
+    await envvar.reconcile(
+        spec={"key": "C", "value": value, "chunked": True},
+        status={
+            "phase": "Ready",
+            "vastKey": "C",
+            "chunkCount": 3,
+            "valueHash": _hash(value),
+        },
+        patch=patch,
+        namespace="default",
+        name="c",
+        logger=logging.getLogger("test"),
+    )
+    assert [k for k, _ in calls["create"]] == ["C_1"]

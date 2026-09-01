@@ -44,6 +44,18 @@ spec:
                     Vast.ai-side variable name. Defaults to metadata.name when
                     omitted. Must be unique across the Vast.ai account — two
                     VastEnvVars with the same key will fight.
+                chunked:
+                  type: boolean
+                  default: false
+                  description: |
+                    Split the value across several Vast.ai variables. The
+                    /secrets/ API caps a value at 256 characters (257 is
+                    rejected with 400), which no certificate or private key
+                    fits, base64 included. When set, the operator registers
+                    <key>_CHUNKS with the part count and <key>_0, <key>_1 ...
+                    with the parts; the consumer concatenates them in order
+                    before decoding. Always uses the chunked layout, even for a
+                    single part, so the consumer never has to guess the shape.
                 encoding:
                   type: string
                   enum: [none, base64]
@@ -125,6 +137,11 @@ spec:
                 valueHash:
                   type: string
                   description: sha256 of the last-synced value (drift detection; never the value).
+                chunkCount:
+                  type: integer
+                  description: |
+                    Number of <key>_N parts currently registered, so an update
+                    that shortens the value can remove the parts left behind.
                 lastSyncTime:
                   type: string
                   format: date-time
