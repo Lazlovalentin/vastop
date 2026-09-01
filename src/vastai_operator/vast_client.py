@@ -47,6 +47,25 @@ class VastAPIError(RuntimeError):
         super().__init__(redact(message))
 
 
+def api_detail(exc: Exception) -> str:
+    """Error text plus the API response body, when the SDK exception carries one.
+
+    requests raises HTTPError with the response attached, but str() on it yields
+    only the status line and the URL. Vast.ai explains its 4xx rejections in the
+    body, so without this every rejection is indistinguishable -- a value that is
+    too long, a name that already exists and an account limit all read as a bare
+    "400 Client Error". Truncated because an HTML error page would otherwise fill
+    the log and the resource status.
+    """
+    text = str(exc)
+    body = getattr(getattr(exc, "response", None), "text", None)
+    if isinstance(body, str):
+        body = body.strip()
+        if body:
+            text = f"{text}: {body[:500]}"
+    return text
+
+
 def _is_not_found(exc: Exception) -> bool:
     """True when an SDK exception reports a missing resource (404)."""
     msg = str(exc).lower()
@@ -228,7 +247,7 @@ class VastClient:
                 order="dph_total",
             )
         except Exception as exc:
-            raise VastAPIError(f"search_offers failed: {exc}") from exc
+            raise VastAPIError(f"search_offers failed: {api_detail(exc)}") from exc
         offers = [Offer.from_api(o) for o in self._as_list(raw)]
         offers.sort(key=lambda o: o.dph_total)
         return offers
@@ -269,7 +288,7 @@ class VastClient:
         try:
             raw = await self._run(self._sdk.create_instance, **kwargs)
         except Exception as exc:
-            raise VastAPIError(f"create_instance failed: {exc}") from exc
+            raise VastAPIError(f"create_instance failed: {api_detail(exc)}") from exc
         instance_id = self._extract_instance_id(raw)
         if instance_id is None:
             raise VastAPIError(f"create_instance returned no id: {raw!r}")
@@ -282,7 +301,7 @@ class VastClient:
         except Exception as exc:
             if _is_not_found(exc):
                 return None
-            raise VastAPIError(f"show_instance failed: {exc}") from exc
+            raise VastAPIError(f"show_instance failed: {api_detail(exc)}") from exc
         if not raw:
             return None
         if isinstance(raw, list):
@@ -377,12 +396,12 @@ class VastClient:
             try:
                 raw = await self._run(_post)
             except Exception as exc:
-                raise VastAPIError(f"create_template failed: {exc}") from exc
+                raise VastAPIError(f"create_template failed: {api_detail(exc)}") from exc
         else:
             try:
                 raw = await self._run(self._sdk.create_template, **kwargs)
             except Exception as exc:
-                raise VastAPIError(f"create_template failed: {exc}") from exc
+                raise VastAPIError(f"create_template failed: {api_detail(exc)}") from exc
         if not isinstance(raw, dict):
             raise VastAPIError(f"create_template returned unexpected shape: {raw!r}")
         return raw
@@ -430,7 +449,7 @@ class VastClient:
         try:
             raw = await self._run(self._sdk.update_template, hash_id=hash_id, **kwargs)
         except Exception as exc:
-            raise VastAPIError(f"update_template failed: {exc}") from exc
+            raise VastAPIError(f"update_template failed: {api_detail(exc)}") from exc
         return raw if isinstance(raw, dict) else {}
 
     async def delete_template(
@@ -452,7 +471,7 @@ class VastClient:
             if _is_not_found(exc):
                 logger.info("Vast.ai template %s already gone", hash_id or template_id)
                 return
-            raise VastAPIError(f"delete_template failed: {exc}") from exc
+            raise VastAPIError(f"delete_template failed: {api_detail(exc)}") from exc
 
     # ---- Account-level environment variables (Vast.ai "secrets", /secrets/) ----
 
@@ -461,7 +480,7 @@ class VastClient:
         try:
             raw = await self._run(self._sdk.create_env_var, name=name, value=value)
         except Exception as exc:
-            raise VastAPIError(f"create_env_var failed: {exc}") from exc
+            raise VastAPIError(f"create_env_var failed: {api_detail(exc)}") from exc
         return raw if isinstance(raw, dict) else {}
 
     async def update_env_var(self, name: str, value: str) -> dict[str, Any]:
@@ -469,7 +488,7 @@ class VastClient:
         try:
             raw = await self._run(self._sdk.update_env_var, name=name, value=value)
         except Exception as exc:
-            raise VastAPIError(f"update_env_var failed: {exc}") from exc
+            raise VastAPIError(f"update_env_var failed: {api_detail(exc)}") from exc
         return raw if isinstance(raw, dict) else {}
 
     async def delete_env_var(self, name: str) -> None:
@@ -480,14 +499,14 @@ class VastClient:
             if _is_not_found(exc):
                 logger.info("Vast.ai env var %s already gone", name)
                 return
-            raise VastAPIError(f"delete_env_var failed: {exc}") from exc
+            raise VastAPIError(f"delete_env_var failed: {api_detail(exc)}") from exc
 
     async def list_env_vars(self) -> dict[str, Any]:
         """Return account env vars keyed by name (values masked — existence check)."""
         try:
             raw = await self._run(self._sdk.show_env_vars, show_values=False)
         except Exception as exc:
-            raise VastAPIError(f"show_env_vars failed: {exc}") from exc
+            raise VastAPIError(f"show_env_vars failed: {api_detail(exc)}") from exc
         return raw if isinstance(raw, dict) else {}
 
     async def destroy_instance(self, instance_id: int) -> None:
@@ -497,7 +516,7 @@ class VastClient:
             if _is_not_found(exc):
                 logger.info("Instance %s already gone", instance_id)
                 return
-            raise VastAPIError(f"destroy_instance failed: {exc}") from exc
+            raise VastAPIError(f"destroy_instance failed: {api_detail(exc)}") from exc
 
     @staticmethod
     def _as_list(raw: Any) -> list[dict[str, Any]]:

@@ -748,3 +748,53 @@ async def test_reconcile_recreates_only_the_missing_chunk(
         logger=logging.getLogger("test"),
     )
     assert [k for k, _ in calls["create"]] == ["C_1"]
+
+
+# ---------- API error bodies ----------
+
+
+class _Resp:
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+
+def test_api_detail_appends_the_response_body() -> None:
+    from vastai_operator.vast_client import api_detail
+
+    exc = Exception("400 Client Error: Bad Request for url: https://x/y")
+    exc.response = _Resp('{"error": "too many secrets"}')  # type: ignore[attr-defined]
+    out = api_detail(exc)
+    assert "400 Client Error" in out
+    assert "too many secrets" in out
+
+
+def test_api_detail_without_a_response_is_unchanged() -> None:
+    from vastai_operator.vast_client import api_detail
+
+    assert api_detail(Exception("boom")) == "boom"
+
+
+def test_api_detail_ignores_an_empty_body() -> None:
+    from vastai_operator.vast_client import api_detail
+
+    exc = Exception("boom")
+    exc.response = _Resp("   ")  # type: ignore[attr-defined]
+    assert api_detail(exc) == "boom"
+
+
+def test_api_detail_truncates_a_huge_body() -> None:
+    from vastai_operator.vast_client import api_detail
+
+    exc = Exception("boom")
+    exc.response = _Resp("x" * 5000)  # type: ignore[attr-defined]
+    assert len(api_detail(exc)) < 600
+
+
+def test_api_error_body_is_still_redacted() -> None:
+    from vastai_operator.vast_client import VastAPIError, api_detail
+
+    exc = Exception("400 for url: https://x/y?api_key=secret123")
+    exc.response = _Resp("denied for api_key=secret123")  # type: ignore[attr-defined]
+    err = VastAPIError(f"create_env_var failed: {api_detail(exc)}")
+    assert "secret123" not in str(err)
+    assert str(err).count("<redacted>") == 2
