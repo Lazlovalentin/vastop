@@ -381,3 +381,207 @@ async def test_resolve_value_requires_source() -> None:
 
     with pytest.raises(kopf.PermanentError):
         envvar._resolve_value({}, "default")
+
+
+# ---------- API key redaction ----------
+
+
+def test_redact_strips_the_api_key_from_a_url() -> None:
+    from vastai_operator.vast_client import redact
+
+    text = (
+        "400 Client Error: Bad Request for url: "
+        "https://console.vast.ai/api/v0/secrets/?api_key=deadbeefcafe1234"
+    )
+    out = redact(text)
+    assert "deadbeefcafe1234" not in out
+    assert "api_key=<redacted>" in out
+
+
+def test_redact_keeps_following_query_parameters() -> None:
+    from vastai_operator.vast_client import redact
+
+    out = redact("https://x/y?api_key=abc123&owner=me")
+    assert out == "https://x/y?api_key=<redacted>&owner=me"
+
+
+def test_redact_is_a_noop_without_a_key() -> None:
+    from vastai_operator.vast_client import redact
+
+    assert redact("plain message") == "plain message"
+
+
+def test_vast_api_error_redacts_its_own_message() -> None:
+    from vastai_operator.vast_client import VastAPIError
+
+    exc = VastAPIError("create_env_var failed: url ?api_key=supersecret")
+    assert "supersecret" not in str(exc)
+    assert "<redacted>" in str(exc)
+
+
+# ---------- spec.encoding ----------
+
+
+def test_resolve_value_defaults_to_no_encoding() -> None:
+    from vastai_operator.handlers import envvar
+
+    assert envvar._resolve_value({"value": "plain"}, "default") == "plain"
+
+
+def test_resolve_value_base64_encodes_inline_value() -> None:
+    import base64
+
+    from vastai_operator.handlers import envvar
+
+    out = envvar._resolve_value(
+        {"value": "line1\nline2", "encoding": "base64"}, "default"
+    )
+    assert "\n" not in out
+    assert base64.b64decode(out).decode() == "line1\nline2"
+
+
+def test_resolve_value_base64_encodes_secret_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import base64
+
+    from vastai_operator.handlers import envvar
+
+    pem = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+    monkeypatch.setattr(envvar, "read_secret_value", lambda ns, n, k: pem)
+    out = envvar._resolve_value(
+        {
+            "valueFrom": {"secretKeyRef": {"name": "tls", "key": "tls.crt"}},
+            "encoding": "base64",
+        },
+        "default",
+    )
+    assert "\n" not in out
+    assert base64.b64decode(out).decode() == pem
+
+
+def test_resolve_value_base64_encodes_template_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import base64
+
+    from vastai_operator.handlers import envvar
+
+    monkeypatch.setattr(envvar, "read_secret_value", lambda ns, n, k: "s3cret")
+    out = envvar._resolve_value(
+        {
+            "valueTemplate": {
+                "template": "a=$(P)\nb=2",
+                "vars": [
+                    {"name": "P", "secretKeyRef": {"name": "x", "key": "y"}}
+                ],
+            },
+            "encoding": "base64",
+        },
+        "default",
+    )
+    assert base64.b64decode(out).decode() == "a=s3cret\nb=2"
+
+
+def test_unsupported_encoding_is_permanent() -> None:
+    import kopf
+
+    from vastai_operator.handlers import envvar
+
+    with pytest.raises(kopf.PermanentError):
+        envvar._resolve_value({"value": "x", "encoding": "rot13"}, "default")
+
+
+async def test_on_create_pushes_the_encoded_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import base64
+
+    from vastai_operator.handlers import envvar
+
+    calls: dict[str, list[Any]] = {"create": [], "update": [], "delete": []}
+    _fake_client(monkeypatch, calls)
+    patch = _Patch()
+
+    await envvar.on_create(
+        spec={"key": "PEM", "value": "a\nb", "encoding": "base64"},
+        patch=patch,
+        namespace="default",
+        name="pem",
+        logger=logging.getLogger("test"),
+    )
+    (name, value), = calls["create"]
+    assert name == "PEM"
+    assert "\n" not in value
+    assert base64.b64decode(value).decode() == "a\nb"
+    assert patch.status["valueHash"] == _hash(value)
+
+
+# ---------- deletion never wedges the resource ----------
+
+
+async def test_on_delete_without_vast_key_survives_an_api_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vastai_operator.handlers import envvar
+    from vastai_operator.vast_client import VastAPIError, VastClient
+
+    class _Failing(VastClient):
+        def __init__(self) -> None:
+            pass
+
+        async def delete_env_var(self, name: str) -> None:
+            raise VastAPIError("delete_env_var failed: 400 Client Error")
+
+    monkeypatch.setattr(envvar, "_client_for", lambda spec, ns: _Failing())
+
+    await envvar.on_delete(
+        spec={"key": "NEVER_CREATED", "value": "x"},
+        status={"phase": "Failed"},
+        namespace="default",
+        name="never-created",
+        logger=logging.getLogger("test"),
+    )
+
+
+async def test_on_delete_with_vast_key_still_propagates_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vastai_operator.handlers import envvar
+    from vastai_operator.vast_client import VastAPIError, VastClient
+
+    class _Failing(VastClient):
+        def __init__(self) -> None:
+            pass
+
+        async def delete_env_var(self, name: str) -> None:
+            raise VastAPIError("delete_env_var failed: 500 Server Error")
+
+    monkeypatch.setattr(envvar, "_client_for", lambda spec, ns: _Failing())
+
+    with pytest.raises(VastAPIError):
+        await envvar.on_delete(
+            spec={"key": "REAL", "value": "x"},
+            status={"vastKey": "REAL", "phase": "Ready"},
+            namespace="default",
+            name="real",
+            logger=logging.getLogger("test"),
+        )
+
+
+async def test_on_delete_without_vast_key_still_attempts_the_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vastai_operator.handlers import envvar
+
+    calls: dict[str, list[Any]] = {"create": [], "update": [], "delete": []}
+    _fake_client(monkeypatch, calls)
+
+    await envvar.on_delete(
+        spec={"key": "ORPHAN", "value": "x"},
+        status={},
+        namespace="default",
+        name="orphan",
+        logger=logging.getLogger("test"),
+    )
+    assert calls["delete"] == ["ORPHAN"]

@@ -24,6 +24,7 @@ hash (status.valueHash) so drift is observable without leaking the secret.
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import hashlib
 import logging
@@ -49,10 +50,32 @@ def _env_key(spec: dict[str, Any], name: str) -> str:
     return str(spec.get("key") or name)
 
 
+def _apply_encoding(spec: dict[str, Any], value: str) -> str:
+    """Encode the resolved value for transport to Vast.ai.
+
+    The /secrets/ API rejects any value containing a newline: a two-line value
+    returns 400 Bad Request while the same value on one line is accepted. That
+    makes PEM material - certificates and private keys - impossible to deliver
+    verbatim, so base64 is offered as an explicit opt-in and whatever consumes
+    the variable on the instance decodes it again.
+    """
+    encoding = str(spec.get("encoding") or "none")
+    if encoding == "none":
+        return value
+    if encoding == "base64":
+        return base64.b64encode(value.encode("utf-8")).decode("ascii")
+    raise kopf.PermanentError(f"unsupported spec.encoding {encoding!r}")
+
+
 def _resolve_value(spec: dict[str, Any], namespace: str) -> str:
-    """Inline spec.value, else spec.valueTemplate, else spec.valueFrom.secretKeyRef."""
+    """Inline spec.value, else spec.valueTemplate, else spec.valueFrom.secretKeyRef.
+
+    The result is what gets pushed to Vast.ai, encoding included, so the value
+    hash recorded in status describes the transported form and drift detection
+    stays consistent across create, update and reconcile.
+    """
     if spec.get("value") is not None:
-        return str(spec["value"])
+        return _apply_encoding(spec, str(spec["value"]))
     template = spec.get("valueTemplate")
     if template:
         value = str(template["template"])
@@ -60,14 +83,16 @@ def _resolve_value(spec: dict[str, Any], namespace: str) -> str:
             ref = var["secretKeyRef"]
             secret = read_secret_value(namespace, ref["name"], ref["key"])
             value = value.replace(f"$({var['name']})", secret)
-        return value
+        return _apply_encoding(spec, value)
     ref = (spec.get("valueFrom") or {}).get("secretKeyRef")
     if not ref:
         raise kopf.PermanentError(
             "VastEnvVar requires spec.value, spec.valueFrom.secretKeyRef"
             " or spec.valueTemplate"
         )
-    return read_secret_value(namespace, ref["name"], ref["key"])
+    return _apply_encoding(
+        spec, read_secret_value(namespace, ref["name"], ref["key"])
+    )
 
 
 def _value_hash(value: str) -> str:
@@ -146,7 +171,7 @@ async def on_update(
     logger.info(msg)
 
 
-@kopf.on.delete(GROUP, VERSION, PLURAL)
+@kopf.on.delete(GROUP, VERSION, PLURAL, retries=3)
 async def on_delete(
     spec: dict[str, Any],
     status: dict[str, Any],
@@ -155,10 +180,36 @@ async def on_delete(
     logger: logging.Logger,
     **_: Any,
 ) -> None:
-    key = status.get("vastKey") or _env_key(spec, name)
+    """Remove the account-level entry, without ever wedging the resource.
+
+    status.vastKey is written only after a create succeeded, so its absence
+    means there is almost certainly nothing on the account to remove. The delete
+    is still attempted, in case the status patch was lost after a successful
+    create, but its failure is not allowed to block deletion: /secrets/ answers
+    400 - not 404 - for a key that does not exist, so _is_not_found cannot
+    swallow it and the finalizer would hold the resource in Terminating
+    forever. A resource that did reach Ready retries a few times first, so a
+    transient API failure does not orphan the entry.
+    """
     client = _client_for(spec, namespace)
-    await client.delete_env_var(key)
-    logger.info("Deleted Vast.ai env var %s", key)
+    recorded = status.get("vastKey")
+    key = recorded or _env_key(spec, name)
+
+    if recorded:
+        await client.delete_env_var(key)
+        logger.info("Deleted Vast.ai env var %s", key)
+        return
+
+    try:
+        await client.delete_env_var(key)
+    except VastAPIError as exc:
+        logger.warning(
+            "Vast.ai env var %s was never registered, nothing to delete: %s",
+            key,
+            exc,
+        )
+    else:
+        logger.info("Deleted Vast.ai env var %s", key)
 
 
 @kopf.timer(GROUP, VERSION, PLURAL, interval=CONFIG.sync_interval_seconds, idle=30)

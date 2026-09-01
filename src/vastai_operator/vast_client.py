@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -21,8 +22,29 @@ except ImportError:  # pragma: no cover - fallback to deprecated package name
 logger = logging.getLogger(__name__)
 
 
+_API_KEY_RE = re.compile(r"(api_key=)[^\s&'\"]+")
+
+
+def redact(text: str) -> str:
+    """Replace Vast.ai API keys in arbitrary text with a placeholder.
+
+    The SDK passes the key as a query parameter, so every requests exception it
+    raises carries the key inside the URL. Those strings are written to CR
+    status and to the operator log, and from there into long-retention log
+    storage, so they must never leave this module intact.
+    """
+    return _API_KEY_RE.sub(r"\1<redacted>", text)
+
+
 class VastAPIError(RuntimeError):
-    """Raised when the Vast.ai API returns an error or no matching offer."""
+    """Raised when the Vast.ai API returns an error or no matching offer.
+
+    Redacts its own message so no construction site can leak the API key by
+    interpolating an SDK exception.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(redact(message))
 
 
 def _is_not_found(exc: Exception) -> bool:
