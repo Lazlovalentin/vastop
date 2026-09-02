@@ -16,7 +16,7 @@ from typing import Any
 import kopf
 
 from ..config import CONFIG
-from ..resolver import resolve_api_key
+from ..resolver import read_secret_value, resolve_api_key
 from ..vast_client import VastAPIError, VastClient
 
 GROUP = CONFIG.api_group
@@ -46,7 +46,25 @@ def _extract_hash(raw: dict[str, Any]) -> tuple[str | None, int | None]:
     return hash_id, template_id
 
 
-def _kwargs_from_spec(name: str, spec: dict[str, Any]) -> dict[str, Any]:
+def _resolve_image_login(spec: dict[str, Any], namespace: str) -> str | None:
+    """Registry credential, inline or read from a Secret.
+
+    Vast.ai takes the login as one "<registry> <user> <password>" string, so an
+    inline value puts a registry password in the manifest and drags the whole
+    template through SOPS -- which in turn makes every other field in it, none
+    of them secret, unreadable and unwritable without the decryption key.
+    imageLoginSecretRef sources it the way apiKeySecretRef already does, so a
+    template can stay plain YAML.
+    """
+    ref = spec.get("imageLoginSecretRef")
+    if ref:
+        return read_secret_value(namespace, ref["name"], ref.get("key", "login"))
+    return spec.get("imageLogin")
+
+
+def _kwargs_from_spec(
+    name: str, spec: dict[str, Any], namespace: str
+) -> dict[str, Any]:
     return {
         "name": name,
         "image": spec["image"],
@@ -57,7 +75,7 @@ def _kwargs_from_spec(name: str, spec: dict[str, Any]) -> dict[str, Any]:
         "onstart": spec.get("onstart"),
         "description": spec.get("description"),
         "private": bool(spec.get("private", True)),
-        "image_login": spec.get("imageLogin"),
+        "image_login": _resolve_image_login(spec, namespace),
     }
 
 
@@ -74,7 +92,7 @@ async def on_create(
     client = _client_for(spec, namespace)
     patch.status["phase"] = "Pending"
     try:
-        raw = await client.create_template(**_kwargs_from_spec(name, spec))
+        raw = await client.create_template(**_kwargs_from_spec(name, spec, namespace))
     except VastAPIError as exc:
         patch.status["phase"] = "Failed"
         patch.status["message"] = str(exc)
@@ -118,7 +136,7 @@ async def on_update(
     client = _client_for(spec, namespace)
 
     try:
-        raw = await client.create_template(**_kwargs_from_spec(name, spec))
+        raw = await client.create_template(**_kwargs_from_spec(name, spec, namespace))
     except VastAPIError as exc:
         patch.status["phase"] = "Failed"
         patch.status["message"] = str(exc)

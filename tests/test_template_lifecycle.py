@@ -381,3 +381,76 @@ async def test_image_tag_change_respects_recreate_flag(
         namespace="default",
     )
     assert drifted is False
+
+
+# ---------- imageLoginSecretRef ----------
+
+
+def test_image_login_inline_is_used_as_is() -> None:
+    from vastai_operator.handlers import template
+
+    spec = {"image": "x", "imageLogin": "reg user pass"}
+    assert template._resolve_image_login(spec, "default") == "reg user pass"
+
+
+def test_image_login_absent_is_none() -> None:
+    from vastai_operator.handlers import template
+
+    assert template._resolve_image_login({"image": "x"}, "default") is None
+
+
+def test_image_login_read_from_a_secret(monkeypatch) -> None:
+    from vastai_operator.handlers import template
+
+    seen: dict[str, str] = {}
+
+    def _read(namespace: str, name: str, key: str) -> str:
+        seen.update(namespace=namespace, name=name, key=key)
+        return "reg user from-secret"
+
+    monkeypatch.setattr(template, "read_secret_value", _read)
+    spec = {"image": "x", "imageLoginSecretRef": {"name": "registry-login"}}
+    assert template._resolve_image_login(spec, "production") == "reg user from-secret"
+    assert seen == {
+        "namespace": "production",
+        "name": "registry-login",
+        "key": "login",
+    }
+
+
+def test_image_login_secret_ref_honours_an_explicit_key(monkeypatch) -> None:
+    from vastai_operator.handlers import template
+
+    monkeypatch.setattr(
+        template, "read_secret_value", lambda ns, n, k: f"{n}/{k}"
+    )
+    spec = {
+        "image": "x",
+        "imageLoginSecretRef": {"name": "creds", "key": "docker"},
+    }
+    assert template._resolve_image_login(spec, "default") == "creds/docker"
+
+
+def test_image_login_secret_ref_wins_over_inline(monkeypatch) -> None:
+    from vastai_operator.handlers import template
+
+    monkeypatch.setattr(template, "read_secret_value", lambda ns, n, k: "from-secret")
+    spec = {
+        "image": "x",
+        "imageLogin": "inline value",
+        "imageLoginSecretRef": {"name": "creds"},
+    }
+    assert template._resolve_image_login(spec, "default") == "from-secret"
+
+
+def test_kwargs_from_spec_carries_the_resolved_login(monkeypatch) -> None:
+    from vastai_operator.handlers import template
+
+    monkeypatch.setattr(template, "read_secret_value", lambda ns, n, k: "resolved")
+    kwargs = template._kwargs_from_spec(
+        "t2e-worker",
+        {"image": "img", "imageLoginSecretRef": {"name": "creds"}},
+        "production",
+    )
+    assert kwargs["image_login"] == "resolved"
+    assert kwargs["name"] == "t2e-worker"

@@ -65,6 +65,20 @@ spec:
                     Docker registry login, formatted as the SDK expects:
                     "<registry> <username> <password>" (space-separated). The first
                     token is used as docker_login_repo. Leave empty for public images.
+                imageLoginSecretRef:
+                  type: object
+                  required: [name]
+                  description: |
+                    Read the registry login from a Secret instead of inlining it.
+                    An inline imageLogin carries a registry password, which forces
+                    the whole template through SOPS and makes every other field in
+                    it unreadable without the decryption key. Defaults to the
+                    "login" key when key is omitted.
+                  properties:
+                    name:
+                      type: string
+                    key:
+                      type: string
                 onstart:
                   type: string
                   description: Shell script run when the instance starts.
