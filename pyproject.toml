@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vastai-operator"
-version = "0.3.6"
+version = "0.3.7"
 description = "Kubernetes operator for Vast.ai GPU instances built with Kopf"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -399,22 +399,25 @@ def test_image_login_absent_is_none() -> None:
     assert template._resolve_image_login({"image": "x"}, "default") is None
 
 
-def test_image_login_read_from_a_secret(monkeypatch) -> None:
+def test_image_login_defaults_to_the_pull_secret(monkeypatch) -> None:
     from vastai_operator.handlers import template
 
-    seen: dict[str, str] = {}
+    seen: dict[str, str | None] = {}
 
-    def _read(namespace: str, name: str, key: str) -> str:
-        seen.update(namespace=namespace, name=name, key=key)
+    def _read(namespace: str, name: str, registry: str | None = None) -> str:
+        seen.update(namespace=namespace, name=name, registry=registry)
         return "reg user from-secret"
 
-    monkeypatch.setattr(template, "read_secret_value", _read)
-    spec = {"image": "x", "imageLoginSecretRef": {"name": "registry-login"}}
+    monkeypatch.setattr(template, "read_docker_login", _read)
+    spec = {
+        "image": "registry.digitalocean.com/adva-soft-us/qwen-worker:v1",
+        "imageLoginSecretRef": {"name": "adva-soft-us"},
+    }
     assert template._resolve_image_login(spec, "production") == "reg user from-secret"
     assert seen == {
         "namespace": "production",
-        "name": "registry-login",
-        "key": "login",
+        "name": "adva-soft-us",
+        "registry": "registry.digitalocean.com",
     }
 
 
@@ -434,7 +437,9 @@ def test_image_login_secret_ref_honours_an_explicit_key(monkeypatch) -> None:
 def test_image_login_secret_ref_wins_over_inline(monkeypatch) -> None:
     from vastai_operator.handlers import template
 
-    monkeypatch.setattr(template, "read_secret_value", lambda ns, n, k: "from-secret")
+    monkeypatch.setattr(
+        template, "read_docker_login", lambda ns, n, r=None: "from-secret"
+    )
     spec = {
         "image": "x",
         "imageLogin": "inline value",
@@ -446,7 +451,9 @@ def test_image_login_secret_ref_wins_over_inline(monkeypatch) -> None:
 def test_kwargs_from_spec_carries_the_resolved_login(monkeypatch) -> None:
     from vastai_operator.handlers import template
 
-    monkeypatch.setattr(template, "read_secret_value", lambda ns, n, k: "resolved")
+    monkeypatch.setattr(
+        template, "read_docker_login", lambda ns, n, r=None: "resolved"
+    )
     kwargs = template._kwargs_from_spec(
         "t2e-worker",
         {"image": "img", "imageLoginSecretRef": {"name": "creds"}},
@@ -454,3 +461,103 @@ def test_kwargs_from_spec_carries_the_resolved_login(monkeypatch) -> None:
     )
     assert kwargs["image_login"] == "resolved"
     assert kwargs["name"] == "t2e-worker"
+
+
+def test_registry_of_reads_the_host_from_an_image() -> None:
+    from vastai_operator.handlers.template import _registry_of
+
+    assert _registry_of("registry.digitalocean.com/x/y:1") == "registry.digitalocean.com"
+    assert _registry_of("localhost:5000/x") == "localhost:5000"
+    assert _registry_of("ubuntu:24.04") is None
+    assert _registry_of("library/ubuntu") is None
+    assert _registry_of(None) is None
+
+
+def test_docker_login_from_a_single_registry_entry() -> None:
+    import base64
+    import json
+
+    from vastai_operator.resolver import docker_login_from_config
+
+    cfg = json.dumps(
+        {
+            "auths": {
+                "registry.example.com": {
+                    "auth": base64.b64encode(b"bob:hunter2").decode()
+                }
+            }
+        }
+    )
+    assert (
+        docker_login_from_config(cfg, None)
+        == "registry.example.com bob hunter2"
+    )
+
+
+def test_docker_login_picks_the_registry_serving_the_image() -> None:
+    import base64
+    import json
+
+    from vastai_operator.resolver import docker_login_from_config
+
+    cfg = json.dumps(
+        {
+            "auths": {
+                "a.example.com": {"auth": base64.b64encode(b"a:1").decode()},
+                "b.example.com": {"auth": base64.b64encode(b"b:2").decode()},
+            }
+        }
+    )
+    assert docker_login_from_config(cfg, "b.example.com") == "b.example.com b 2"
+
+
+def test_docker_login_is_ambiguous_without_a_matching_registry() -> None:
+    import base64
+    import json
+
+    import kopf
+    import pytest as _pytest
+
+    from vastai_operator.resolver import docker_login_from_config
+
+    cfg = json.dumps(
+        {
+            "auths": {
+                "a.example.com": {"auth": base64.b64encode(b"a:1").decode()},
+                "b.example.com": {"auth": base64.b64encode(b"b:2").decode()},
+            }
+        }
+    )
+    with _pytest.raises(kopf.PermanentError):
+        docker_login_from_config(cfg, "c.example.com")
+
+
+def test_docker_login_accepts_explicit_username_and_password() -> None:
+    import json
+
+    from vastai_operator.resolver import docker_login_from_config
+
+    cfg = json.dumps(
+        {"auths": {"r.example.com": {"username": "u", "password": "p"}}}
+    )
+    assert docker_login_from_config(cfg, None) == "r.example.com u p"
+
+
+def test_docker_login_rejects_an_empty_config() -> None:
+    import kopf
+    import pytest as _pytest
+
+    from vastai_operator.resolver import docker_login_from_config
+
+    with _pytest.raises(kopf.PermanentError):
+        docker_login_from_config('{"auths": {}}', None)
+
+
+def test_docker_login_rejects_malformed_json() -> None:
+    import kopf
+    import pytest as _pytest
+
+    from vastai_operator.resolver import docker_login_from_config
+
+    with _pytest.raises(kopf.PermanentError):
+        docker_login_from_config("not json", None)

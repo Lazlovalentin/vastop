@@ -16,7 +16,12 @@ from typing import Any
 import kopf
 
 from ..config import CONFIG
-from ..resolver import read_secret_value, resolve_api_key
+from ..resolver import (
+    DOCKER_CONFIG_KEY,
+    read_docker_login,
+    read_secret_value,
+    resolve_api_key,
+)
 from ..vast_client import VastAPIError, VastClient
 
 GROUP = CONFIG.api_group
@@ -46,6 +51,16 @@ def _extract_hash(raw: dict[str, Any]) -> tuple[str | None, int | None]:
     return hash_id, template_id
 
 
+def _registry_of(image: str | None) -> str | None:
+    """Registry host an image reference pulls from, if it names one."""
+    if not image or "/" not in image:
+        return None
+    head = image.split("/", 1)[0]
+    if head == "localhost" or "." in head or ":" in head:
+        return head
+    return None
+
+
 def _resolve_image_login(spec: dict[str, Any], namespace: str) -> str | None:
     """Registry credential, inline or read from a Secret.
 
@@ -57,9 +72,13 @@ def _resolve_image_login(spec: dict[str, Any], namespace: str) -> str | None:
     template can stay plain YAML.
     """
     ref = spec.get("imageLoginSecretRef")
-    if ref:
-        return read_secret_value(namespace, ref["name"], ref.get("key", "login"))
-    return spec.get("imageLogin")
+    if not ref:
+        return spec.get("imageLogin")
+
+    key = ref.get("key")
+    if key and key != DOCKER_CONFIG_KEY:
+        return read_secret_value(namespace, ref["name"], key)
+    return read_docker_login(namespace, ref["name"], _registry_of(spec.get("image")))
 
 
 def _kwargs_from_spec(

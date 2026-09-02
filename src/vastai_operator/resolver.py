@@ -8,6 +8,7 @@ API server and provides convenience accessors.
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
 from dataclasses import dataclass
@@ -197,3 +198,74 @@ def resolve_api_key(spec: dict[str, Any], namespace: str) -> str:
         return env_key
 
     return read_secret_value(namespace, ref["name"], ref.get("key", "VAST_API_KEY"))
+
+
+DOCKER_CONFIG_KEY = ".dockerconfigjson"
+
+
+def read_secret_data(namespace: str, name: str) -> dict[str, str]:
+    """Every key of a namespaced Secret, base64-decoded."""
+    core = k8s_client.CoreV1Api()
+    try:
+        secret = core.read_namespaced_secret(name=name, namespace=namespace)
+    except k8s_client.ApiException as exc:
+        raise kopf.TemporaryError(
+            f"Cannot read secret {namespace}/{name}: {exc}", delay=30
+        ) from exc
+    return {
+        key: base64.b64decode(value).decode("utf-8")
+        for key, value in (secret.data or {}).items()
+    }
+
+
+def docker_login_from_config(config_json: str, registry: str | None) -> str:
+    """Turn a kubernetes.io/dockerconfigjson payload into the Vast.ai login form.
+
+    Vast.ai wants one "<registry> <username> <password>" string. A pull secret
+    already holds exactly that, base64-encoded in auths[registry].auth, so a
+    cluster that can pull the image already has everything needed and no second
+    copy of the credential has to be created and kept in step.
+
+    With several registries in one secret the one serving the image wins;
+    otherwise a lone entry is unambiguous.
+    """
+    try:
+        auths = (json.loads(config_json) or {}).get("auths") or {}
+    except ValueError as exc:
+        raise kopf.PermanentError(f"Malformed docker config: {exc}") from exc
+    if not auths:
+        raise kopf.PermanentError("Docker config has no auths entry")
+
+    chosen = registry if registry in auths else None
+    if chosen is None:
+        if len(auths) > 1:
+            raise kopf.PermanentError(
+                f"Docker config has {len(auths)} registries and none matches "
+                f"{registry!r}; set imageLoginSecretRef.key to a literal login"
+            )
+        chosen = next(iter(auths))
+
+    entry = auths[chosen] or {}
+    auth = entry.get("auth")
+    if auth:
+        decoded = base64.b64decode(auth).decode("utf-8")
+        username, _, password = decoded.partition(":")
+    else:
+        username = entry.get("username", "")
+        password = entry.get("password", "")
+    if not username or not password:
+        raise kopf.PermanentError(
+            f"Docker config entry for {chosen} has no usable credentials"
+        )
+    return f"{chosen} {username} {password}"
+
+
+def read_docker_login(
+    namespace: str, name: str, registry: str | None = None
+) -> str:
+    data = read_secret_data(namespace, name)
+    if DOCKER_CONFIG_KEY not in data:
+        raise kopf.PermanentError(
+            f"Secret {namespace}/{name} has no {DOCKER_CONFIG_KEY}"
+        )
+    return docker_login_from_config(data[DOCKER_CONFIG_KEY], registry)

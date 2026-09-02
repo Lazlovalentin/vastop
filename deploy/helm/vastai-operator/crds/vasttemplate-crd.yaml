@@ -72,8 +72,12 @@ spec:
                     Read the registry login from a Secret instead of inlining it.
                     An inline imageLogin carries a registry password, which forces
                     the whole template through SOPS and makes every other field in
-                    it unreadable without the decryption key. Defaults to the
-                    "login" key when key is omitted.
+                    it unreadable without the decryption key. With key omitted the
+                    Secret is read as a kubernetes.io/dockerconfigjson pull secret
+                    and the login is derived from it, so the credential the cluster
+                    already uses to pull the image is reused rather than copied.
+                    Set key to read a literal "<registry> <user> <password>" string
+                    instead.
                   properties:
                     name:
                       type: string
