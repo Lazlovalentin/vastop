@@ -591,8 +591,12 @@ async def test_on_delete_without_vast_key_still_attempts_the_call(
 
 
 def _joined(entries: dict[str, str], key: str) -> str:
-    count = int(entries[f"{key}_CHUNKS"])
-    return "".join(entries[f"{key}_{i}"] for i in range(count))
+    parts = []
+    index = 0
+    while f"{key}_{index}" in entries:
+        parts.append(entries[f"{key}_{index}"])
+        index += 1
+    return "".join(parts)
 
 
 def test_unchunked_value_is_a_single_entry() -> None:
@@ -613,7 +617,7 @@ def test_chunked_short_value_still_uses_the_chunked_layout() -> None:
         {"key": "C", "value": "tiny", "chunked": True}, "c", "default"
     )
     assert count == 1
-    assert entries == {"C_CHUNKS": "1", "C_0": "tiny"}
+    assert entries == {"C_0": "tiny"}
     assert _joined(entries, key) == "tiny"
 
 
@@ -625,12 +629,8 @@ def test_chunked_value_splits_at_the_limit_and_round_trips() -> None:
         {"key": "C", "value": value, "chunked": True}, "c", "default"
     )
     assert count == 3
-    assert entries["C_CHUNKS"] == "3"
-    assert all(
-        len(v) <= envvar.CHUNK_LIMIT
-        for k, v in entries.items()
-        if k != "C_CHUNKS"
-    )
+    assert set(entries) == {"C_0", "C_1", "C_2"}
+    assert all(len(v) <= envvar.CHUNK_LIMIT for v in entries.values())
     assert _joined(entries, key) == value
 
 
@@ -678,8 +678,7 @@ async def test_on_create_registers_every_chunk(
         logger=logging.getLogger("test"),
     )
     created = dict(calls["create"])
-    assert created["C_CHUNKS"] == "3"
-    assert set(created) == {"C_CHUNKS", "C_0", "C_1", "C_2"}
+    assert set(created) == {"C_0", "C_1", "C_2"}
     assert patch.status["chunkCount"] == 3
     assert patch.status["vastKey"] == "C"
 
@@ -720,7 +719,7 @@ async def test_on_delete_removes_every_chunk(
         name="c",
         logger=logging.getLogger("test"),
     )
-    assert sorted(calls["delete"]) == ["C_0", "C_1", "C_2", "C_CHUNKS"]
+    assert sorted(calls["delete"]) == ["C_0", "C_1", "C_2"]
 
 
 async def test_reconcile_recreates_only_the_missing_chunk(
@@ -729,7 +728,7 @@ async def test_reconcile_recreates_only_the_missing_chunk(
     from vastai_operator.handlers import envvar
 
     calls: dict[str, list[Any]] = {"create": [], "update": [], "delete": []}
-    calls["existing_response"] = [{"C_CHUNKS": "", "C_0": "", "C_2": ""}]
+    calls["existing_response"] = [{"C_0": "", "C_2": ""}]
     _fake_client(monkeypatch, calls)
     patch = _Patch()
 
@@ -798,3 +797,13 @@ def test_api_error_body_is_still_redacted() -> None:
     err = VastAPIError(f"create_env_var failed: {api_detail(exc)}")
     assert "secret123" not in str(err)
     assert str(err).count("<redacted>") == 2
+
+
+def test_chunked_layout_spends_no_slot_on_a_counter() -> None:
+    from vastai_operator.handlers import envvar
+
+    _, entries, count = envvar._desired_entries(
+        {"key": "C", "value": "v" * 900, "chunked": True}, "c", "default"
+    )
+    assert len(entries) == count
+    assert not any(k.endswith("_CHUNKS") for k in entries)

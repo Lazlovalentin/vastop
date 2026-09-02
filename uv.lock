@@ -1979,7 +1979,7 @@ wheels = [
 
 [[package]]
 name = "vastai-operator"
-version = "0.3.7"
+version = "0.3.8"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

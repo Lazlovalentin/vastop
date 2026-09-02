@@ -6,9 +6,10 @@
 # only makes the second one worse.
 #
 # encoding: base64 removes the newlines, chunked: true stays under the cap by
-# registering <key>_CHUNKS with the part count plus <key>_0, <key>_1 ... with
-# the parts. Whatever reads the variable on the instance concatenates the parts
-# in order and base64-decodes the result.
+# registering <key>_0, <key>_1 ... Whatever reads the variable on the instance
+# reads consecutive indexes until one is missing, concatenates them and
+# base64-decodes the result. There is no counter variable: the account also
+# caps the number of entries at 16, so a counter costs a slot a chunk needs.
 #
 # The Secret here is typically written by cert-manager, so rotation is picked
 # up by the reconcile timer without touching this resource.

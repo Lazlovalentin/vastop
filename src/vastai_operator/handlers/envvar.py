@@ -100,7 +100,7 @@ CHUNK_LIMIT = 256
 
 def _chunk_keys(key: str, count: int) -> list[str]:
     """Every Vast.ai-side name a chunked variable occupies."""
-    return [f"{key}_CHUNKS"] + [f"{key}_{i}" for i in range(count)]
+    return [f"{key}_{i}" for i in range(count)]
 
 
 def _desired_entries(
@@ -109,11 +109,14 @@ def _desired_entries(
     """Map one VastEnvVar onto the account entries it owns.
 
     Unchunked, that is a single entry under the key itself. Chunked, it is
-    <key>_CHUNKS holding the part count plus <key>_0..<key>_N-1 holding the
-    parts, because the /secrets/ API caps a value at 256 characters and no
-    certificate or key fits in that, base64 included. The chunked layout is
-    used even when one part would do, so whatever reads the variable on the
-    instance never has to detect which shape it got.
+    <key>_0..<key>_N-1, because the /secrets/ API caps a value at 256
+    characters and no certificate or key fits in that, base64 included.
+
+    There is deliberately no <key>_CHUNKS counter: the same account caps the
+    number of entries at 16, and one counter per chunked variable is a slot
+    that a chunk needs more. The consumer reads consecutive indexes until one
+    is missing, and catches a short read by checking that what it decodes is
+    actually a certificate.
     """
     key = _env_key(spec, name)
     value = _resolve_value(spec, namespace)
@@ -123,9 +126,7 @@ def _desired_entries(
     parts = [
         value[i : i + CHUNK_LIMIT] for i in range(0, len(value), CHUNK_LIMIT)
     ] or [""]
-    entries = {f"{key}_CHUNKS": str(len(parts))}
-    for index, part in enumerate(parts):
-        entries[f"{key}_{index}"] = part
+    entries = {f"{key}_{index}": part for index, part in enumerate(parts)}
     return key, entries, len(parts)
 
 

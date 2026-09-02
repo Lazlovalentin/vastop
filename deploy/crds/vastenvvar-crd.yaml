@@ -50,12 +50,14 @@ spec:
                   description: |
                     Split the value across several Vast.ai variables. The
                     /secrets/ API caps a value at 256 characters (257 is
-                    rejected with 400), which no certificate or private key
-                    fits, base64 included. When set, the operator registers
-                    <key>_CHUNKS with the part count and <key>_0, <key>_1 ...
-                    with the parts; the consumer concatenates them in order
-                    before decoding. Always uses the chunked layout, even for a
-                    single part, so the consumer never has to guess the shape.
+                    rejected with input_too_long), which no certificate or
+                    private key fits, base64 included. When set, the operator
+                    registers <key>_0, <key>_1 ... and the consumer reads
+                    consecutive indexes until one is missing. There is no
+                    counter variable on purpose: the same account caps entries
+                    at 16, so a counter costs a slot a chunk needs more. Always
+                    uses the chunked layout, even for a single part, so the
+                    consumer never has to guess the shape.
                 encoding:
                   type: string
                   enum: [none, base64]
